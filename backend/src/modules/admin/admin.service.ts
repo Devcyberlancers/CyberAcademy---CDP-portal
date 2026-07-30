@@ -1,0 +1,826 @@
+import {
+  BadGatewayException, ConflictException, ForbiddenException, Injectable, NotFoundException, UnprocessableEntityException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Prisma, users_role } from '@prisma/client';
+import * as bcrypt from 'bcryptjs';
+import { randomBytes } from 'node:crypto';
+import { Cron } from '@nestjs/schedule';
+import { PrismaService } from '../../prisma/prisma.service';
+import { MailService } from '../mail/mail.service';
+import {
+  AccessDto, CourseDto, CredentialSendDto, JobCreateDto, PortalSettingsDto,
+  SnapshotDto, StudentAccountDto, StudentCourseDto, StudentReminderDto,
+  LegacyStudentLoginDto,
+} from './dto/admin.dto';
+
+@Injectable()
+export class AdminService {
+  private settings: PortalSettingsDto = new PortalSettingsDto();
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly mail: MailService,
+    private readonly config: ConfigService,
+  ) {}
+
+  private accessOut(row: any) {
+    return {
+      courses_enabled: Boolean(row?.courses_enabled),
+      assessments_enabled: Boolean(row?.assessments_enabled),
+      jobs_enabled: Boolean(row?.jobs_enabled),
+    };
+  }
+
+  private globalAccess() {
+    return this.prisma.portal_access_settings.upsert({
+      where: { scope_key: 'global' },
+      create: {
+        scope_key: 'global', courses_enabled: false, assessments_enabled: false,
+        jobs_enabled: false, updated_by: '', updated_at: new Date(),
+      },
+      update: {},
+    });
+  }
+
+  async getGlobalAccess() { return this.accessOut(await this.globalAccess()); }
+
+  async setGlobalAccess(dto: AccessDto, actor: string) {
+    const row = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.portal_access_settings.upsert({
+        where: { scope_key: 'global' },
+        create: { scope_key: 'global', ...dto, updated_by: actor, updated_at: new Date() },
+        update: { ...dto, updated_by: actor, updated_at: new Date() },
+      });
+      await tx.portal_access_settings.updateMany({
+        where: { scope_key: { not: 'global' } },
+        data: { ...dto, updated_by: actor, updated_at: new Date() },
+      });
+      return updated;
+    });
+    return this.accessOut(row);
+  }
+
+  async getStudentAccess(studentId: number) {
+    const profile = await this.prisma.student_profiles.findUnique({ where: { id: studentId } });
+    if (!profile) throw new NotFoundException('Student not found');
+    const row = await this.prisma.portal_access_settings.findUnique({ where: { scope_key: profile.email.toLowerCase() } })
+      ?? await this.globalAccess();
+    return this.accessOut(row);
+  }
+
+  async setStudentAccess(studentId: number, dto: AccessDto, actor: string) {
+    const profile = await this.prisma.student_profiles.findUnique({ where: { id: studentId } });
+    if (!profile) throw new NotFoundException('Student not found');
+    const row = await this.prisma.portal_access_settings.upsert({
+      where: { scope_key: profile.email.toLowerCase() },
+      create: { scope_key: profile.email.toLowerCase(), ...dto, updated_by: actor, updated_at: new Date() },
+      update: { ...dto, updated_by: actor, updated_at: new Date() },
+    });
+    return this.accessOut(row);
+  }
+
+  private courseOut(course: any) {
+    const metadata = (course.metadata_json && typeof course.metadata_json === 'object') ? course.metadata_json : {};
+    return {
+      id: course.id, title: course.title, category: course.category,
+      instructor: metadata.instructor ?? '', level: course.level, status: course.status,
+      visibility: metadata.visibility ?? 'public', duration: metadata.duration ?? '',
+      progress_percent: course.progress_percent, assessments: course.assessments,
+      heading: course.heading, labs: course.labs, start_date: course.start_date,
+      end_date: course.end_date, icon: course.icon, color: course.color,
+      metadata, updated_at: course.updated_at,
+    };
+  }
+
+  async courses() {
+    const rows = await this.prisma.courses.findMany({ orderBy: { updated_at: 'desc' } });
+    return rows.map((row) => this.courseOut(row));
+  }
+
+  async courseOverview() {
+    const [total, published, drafts] = await Promise.all([
+      this.prisma.courses.count(),
+      this.prisma.courses.count({ where: { status: { in: ['active', 'published'] } } }),
+      this.prisma.courses.count({ where: { status: 'draft' } }),
+    ]);
+    return { section: 'courses', summary: { total_courses: total, published, drafts } };
+  }
+
+  async courseStudents(courseId: number) {
+    const course = await this.prisma.courses.findUnique({ where: { id: courseId } });
+    if (!course) throw new NotFoundException('Course not found');
+    const prefix = `course:${courseId}:`;
+    const [profiles, academics, settings, attempts] = await Promise.all([
+      this.prisma.student_profiles.findMany({ orderBy: { full_name: 'asc' } }),
+      this.prisma.students.findMany({
+        include: {
+          users: { select: { email: true } },
+          student_course_assignments: { where: { course_id: courseId } },
+        },
+      }),
+      this.prisma.assignment_security_settings.findMany({
+        where: { assignment_id: { startsWith: prefix }, published: true, active: true },
+        select: { assignment_id: true },
+      }),
+      this.prisma.assignment_attempts.findMany({
+        where: { assignment_id: { startsWith: prefix } },
+        orderBy: { started_at: 'desc' },
+      }),
+    ]);
+    const academicByEmail = new Map(academics.map((student) => [student.users.email.toLowerCase(), student]));
+    const totalAssessments = settings.length;
+    const rows = profiles.map((profile) => {
+      const email = profile.email.toLowerCase();
+      const academic = academicByEmail.get(email);
+      const studentAttempts = attempts.filter((attempt) =>
+        attempt.student_email.toLowerCase() === email || Boolean(academic && attempt.student_id === academic.id));
+      const completed = studentAttempts.filter((attempt) => attempt.status !== 'in_progress');
+      const completedAssessments = new Set(completed.map((attempt) => attempt.assignment_id)).size;
+      return {
+        student_id: profile.id,
+        student_name: profile.full_name || profile.first_name || profile.email,
+        student_email: profile.email,
+        register_number: profile.registration_number,
+        assigned: Boolean(academic?.student_course_assignments.length),
+        progress_percent: totalAssessments
+          ? Math.round((completedAssessments / totalAssessments) * 100)
+          : 0,
+        assessments_completed: completedAssessments,
+        total_assessments: totalAssessments,
+        attempts: studentAttempts.length,
+        average_score: completed.length
+          ? Math.round(completed.reduce((sum, attempt) => sum + attempt.score, 0) / completed.length)
+          : null,
+        latest_score: completed[0]?.score ?? null,
+        latest_activity: studentAttempts[0]?.ended_at ?? studentAttempts[0]?.started_at ?? null,
+      };
+    });
+    return { course: this.courseOut(course), total: rows.length, students: rows };
+  }
+
+  async createCourse(dto: CourseDto) {
+    const title = dto.title.trim();
+    if (await this.prisma.courses.findUnique({ where: { title } })) {
+      throw new ConflictException('A course with this title already exists');
+    }
+    const now = new Date();
+    const heading = dto.short_description ?? dto.heading ?? '';
+    const metadata: Prisma.InputJsonValue = dto.metadata ?? {
+      description: dto.description ?? '', short_description: dto.short_description,
+      instructor: dto.instructor, duration: dto.duration ?? '', language: dto.language,
+      banner_url: dto.banner_url ?? '', visibility: dto.visibility,
+    };
+    const row = await this.prisma.courses.create({
+      data: {
+        title, heading: heading.trim() || title, category: dto.category.trim(),
+        level: dto.level.trim() || 'Beginner', status: dto.status ?? 'draft', progress_percent: dto.progress_percent ?? 0,
+        assessments: dto.assessments ?? 0, labs: dto.labs ?? 0, start_date: dto.start_date ? new Date(dto.start_date) : null,
+        end_date: dto.end_date ? new Date(dto.end_date) : null, icon: dto.icon ?? 'book', color: dto.color ?? 'blue',
+        metadata_json: metadata, created_at: now, updated_at: now,
+        admin_course_modules: {
+          create: dto.modules.map((module) => ({
+            title: module.title.trim(), position: module.position,
+            admin_course_lessons: { create: module.lessons.map((lesson) => ({ ...lesson, title: lesson.title.trim() })) },
+          })),
+        },
+      },
+    });
+    return this.courseOut(row);
+  }
+
+  async setCourseStatus(courseId: number, status: 'active' | 'draft') {
+    const course = await this.prisma.courses.findUnique({ where: { id: courseId } });
+    if (!course) throw new NotFoundException('Course not found');
+    const published = status === 'active';
+    await this.prisma.$transaction([
+      this.prisma.courses.update({ where: { id: courseId }, data: { status, updated_at: new Date() } }),
+      this.prisma.assignment_security_settings.updateMany({
+        where: { assignment_id: { startsWith: `course:${courseId}:` } },
+        data: { published, active: published, updated_at: new Date() },
+      }),
+    ]);
+    return { course_id: courseId, status };
+  }
+
+  async updateCourse(courseId: number, dto: CourseDto) {
+    const current = await this.prisma.courses.findUnique({ where: { id: courseId } });
+    if (!current) throw new NotFoundException('Course not found');
+    const title = dto.title.trim();
+    const duplicate = await this.prisma.courses.findFirst({ where: { title, id: { not: courseId } } });
+    if (duplicate) throw new ConflictException('A course with this title already exists');
+    const old = (current.metadata_json && typeof current.metadata_json === 'object' && !Array.isArray(current.metadata_json))
+      ? current.metadata_json as Prisma.JsonObject : {};
+    const heading = dto.short_description ?? dto.heading ?? current.heading;
+    const metadata: Prisma.InputJsonValue = dto.metadata ?? {
+      ...old, description: dto.description ?? '', short_description: dto.short_description,
+      instructor: dto.instructor, duration: dto.duration ?? '', visibility: dto.visibility,
+    };
+    const row = await this.prisma.courses.update({
+      where: { id: courseId },
+      data: {
+        title, heading: heading.trim(), category: dto.category.trim(),
+        level: dto.level.trim() || 'Beginner', metadata_json: metadata, updated_at: new Date(),
+      },
+    });
+    return this.courseOut(row);
+  }
+
+  async deleteCourse(courseId: number) {
+    if (!await this.prisma.courses.findUnique({ where: { id: courseId } })) throw new NotFoundException('Course not found');
+    await this.prisma.courses.delete({ where: { id: courseId } });
+    return { deleted: true };
+  }
+
+  async dashboard() {
+    const [totalStudents, openJobs, publishedCourses, approvals] = await Promise.all([
+      this.prisma.student_profiles.count(),
+      this.prisma.jobs.count(),
+      this.prisma.courses.count(),
+      this.prisma.student_profiles.count({ where: { status: 'Completed' } }),
+    ]);
+    return {
+      section: 'dashboard',
+      stats: {
+        total_students: totalStudents, active_this_week: Math.min(totalStudents, 8),
+        courses_published: publishedCourses, pending_approvals: approvals,
+        open_jobs: openJobs, security_alerts: 0,
+      },
+      notifications: [
+        { type: 'profile_approval', count: approvals, message: 'Student profiles waiting for admin approval' },
+        { type: 'course_assessment', count: publishedCourses, message: 'Course assessments are synced per course' },
+      ],
+      links: {
+        courses: '/api/admin/courses', jobs: '/api/admin/jobs', students: '/api/admin/students',
+        settings: '/api/admin/settings', nerd: '/api/admin/nerd', ide: '/api/admin/ide',
+      },
+    };
+  }
+
+  async dashboardStats() {
+    const data = await this.dashboard();
+    return {
+      total_students: data.stats.total_students, active_this_week: data.stats.active_this_week,
+      courses_published: data.stats.courses_published, pending_job_approvals: 0,
+      open_jobs: data.stats.open_jobs, security_alerts: 0,
+    };
+  }
+
+  async dashboardActivity() {
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const counts: number[] = [];
+    for (let offset = 6; offset >= 0; offset--) {
+      const start = new Date(today.getTime() - offset * 86_400_000);
+      const end = new Date(start.getTime() + 86_400_000);
+      counts.push(await this.prisma.applications.count({
+        where: { status: 'applied', applied_at: { gte: start, lt: end } },
+      }));
+    }
+    const peak = Math.max(0, ...counts);
+    return { student_activity: counts.map((value) => peak ? Math.round(value / peak * 100) : 0), application_counts: counts };
+  }
+
+  getSettings() { return this.settings; }
+  setSettings(dto: PortalSettingsDto) { this.settings = dto; return this.settings; }
+  settingsOverview() {
+    return {
+      section: 'settings', settings: this.settings,
+      endpoints: { get: '/api/admin/settings', update: '/api/admin/settings' },
+      integration_notes: [
+        'Use allowed domains before account creation and profile approval.',
+        'Use manual_job_approval_required to control candidate approval flow.',
+      ],
+    };
+  }
+
+  async snapshot(key: string) {
+    const row = await this.prisma.admin_snapshots.findUnique({ where: { key } });
+    if (!row) throw new NotFoundException('Snapshot not found');
+    return { key: row.key, payload: JSON.parse(row.payload), updated_at: row.updated_at };
+  }
+
+  async saveSnapshot(key: string, dto: SnapshotDto, actor: string) {
+    await this.prisma.admin_snapshots.upsert({
+      where: { key },
+      create: { key, payload: JSON.stringify(dto.payload), updated_by: dto.updated_by ?? actor, updated_at: new Date() },
+      update: { payload: JSON.stringify(dto.payload), updated_by: dto.updated_by ?? actor, updated_at: new Date() },
+    });
+    return { key, saved: true };
+  }
+
+  reports() {
+    return [
+      { key: 'student-progress', name: 'Student progress report' },
+      { key: 'course-completion', name: 'Course completion report' },
+      { key: 'placement-approvals', name: 'Placement approval report' },
+      { key: 'security-audit', name: 'Security audit report' },
+    ];
+  }
+
+  async securityEvents() {
+    const rows = await this.prisma.assignment_events.findMany({ orderBy: { created_at: 'desc' }, take: 100 });
+    return rows.map((row) => ({
+      title: row.reason || row.event_type, severity: row.event_type.includes('terminate') ? 'high' : 'medium',
+      actor: `attempt:${row.attempt_id}`, time: row.created_at.toISOString(),
+    }));
+  }
+
+  async auditLogs() {
+    const rows = await this.prisma.audit_logs.findMany({ orderBy: { created_at: 'desc' }, take: 100 });
+    return rows.map((row) => ({
+      actor: row.actor_email, action: row.action,
+      target: [row.target_type, row.target_id].filter(Boolean).join(':'), time: row.created_at.toISOString(),
+    }));
+  }
+
+  private adminJobOut(job: any) {
+    return {
+      id: job.id, job_id: job.id, ok: true, company: job.company, role: job.title, title: job.title,
+      location: job.location, ctc: job.salary, salary: job.salary, status: 'published',
+      experience: job.experience, employment_type: job.employment_type,
+      skills: String(job.skills ?? '').split(',').map((value) => value.trim()).filter(Boolean),
+      description: job.description, posted_date: job.posted_date, apply_url: job.apply_url,
+      company_logo: job.company_logo, platform: job.platform, match_score: job.match_score,
+      is_entry_level: job.is_entry_level, updated_at: job.updated_at,
+    };
+  }
+
+  async adminJobs() {
+    const rows = await this.prisma.jobs.findMany({ orderBy: { updated_at: 'desc' } });
+    return rows.map((row) => this.adminJobOut(row));
+  }
+
+  async jobsOverview() {
+    const [total, waiting] = await Promise.all([
+      this.prisma.jobs.count(),
+      this.prisma.applications.count({ where: { status: 'manual_review' } }),
+    ]);
+    return { section: 'jobs', summary: { total_jobs: total, published: total, candidate_waiting_approval: waiting } };
+  }
+
+  async applicationActivity() {
+    const rows = await this.prisma.applications.findMany({
+      where: { status: 'applied' },
+      include: { students: { include: { users: true } }, jobs: true },
+      orderBy: { applied_at: 'desc' },
+      take: 1000,
+    });
+    return rows.map((row) => ({
+      id: row.id, studentId: row.students.id, studentName: row.students.full_name,
+      studentEmail: row.students.users.email, registrationNumber: row.students.usn,
+      jobId: row.jobs.id, jobTitle: row.jobs.title, company: row.jobs.company,
+      status: row.status, changedAt: row.applied_at.toISOString(),
+    }));
+  }
+
+  async createJob(dto: JobCreateDto) {
+    const now = new Date();
+    const title = (dto.role ?? dto.title ?? '').trim();
+    if (!title) throw new UnprocessableEntityException('Job role or title is required');
+    const row = await this.prisma.jobs.create({
+      data: {
+        title, company: dto.company.trim(), location: dto.location ?? '',
+        experience: dto.experience ?? '', salary: dto.ctc ?? dto.salary ?? '',
+        employment_type: dto.job_type ?? dto.employment_type ?? '',
+        skills: dto.skills?.join(', ') ?? '', description: dto.eligibility ?? dto.description ?? '',
+        posted_date: dto.deadline ?? dto.posted_date ?? '', apply_url: dto.source_url ?? dto.apply_url ?? '',
+        company_logo: dto.company_logo ?? null, platform: dto.platform ?? 'admin',
+        match_score: dto.match_score ?? 0, is_entry_level: dto.is_entry_level ?? true,
+        created_at: now, updated_at: now,
+      },
+    });
+    return this.adminJobOut(row);
+  }
+
+  async decideApplication(id: number, status: 'approved' | 'rejected', note?: string) {
+    if (!await this.prisma.applications.findUnique({ where: { id } })) throw new NotFoundException('Application not found');
+    await this.prisma.applications.update({ where: { id }, data: { status } });
+    return { application_id: id, status, review_note: note ?? null };
+  }
+
+  scrapeJobs(sourceUrls: string[]) {
+    const jobs = new Map<string, object>();
+    sourceUrls.forEach((source_url) => {
+      const item = { company: 'Sample Company', role: 'Software Engineer', location: 'Bangalore', ctc: 'Rs 6L PA', source_url };
+      jobs.set(`${item.company}|${item.role}|${item.location}`, item);
+    });
+    return { jobs: [...jobs.values()] };
+  }
+
+  private async profileResponse(profile: any) {
+    const user = await this.prisma.users.findUnique({ where: { email: profile.email.toLowerCase() } });
+    const sender = this.config.get<string>('smtp.fromEmail') ?? '';
+    return {
+      id: profile.id, name: profile.full_name || profile.first_name || profile.email,
+      email: profile.email, register_number: profile.registration_number || profile.cyberlancers_id || String(profile.id),
+      phone: profile.phone || null, degree: profile.course || null, branch: profile.department || null,
+      batch: profile.batch || null, status: profile.status || (!user || user.is_active ? 'active' : 'suspended'),
+      progress_percent: 0, current_module: profile.tag || null, payment_status: null,
+      account_status: user ? 'Account Created' : 'Not Created',
+      profile_status: profile.status || 'Waiting for Student', username: profile.email,
+      portal_link: `${this.config.get<string>('studentFrontendUrl')?.replace(/\/+$/, '')}/student/login`,
+      credential_email: profile.email, sender_email: sender, company_email: sender,
+      credential_email_sent: false, credential_delivery_message: null,
+    };
+  }
+
+  async students() {
+    const rows = await this.prisma.student_profiles.findMany({ orderBy: [{ updated_at: 'desc' }, { id: 'desc' }] });
+    return Promise.all(rows.map((row) => this.profileResponse(row)));
+  }
+
+  async studentLearning(id: number) {
+    const profile = await this.prisma.student_profiles.findUnique({ where: { id } });
+    if (!profile) throw new NotFoundException('Student not found');
+    const academic = await this.prisma.students.findFirst({ where: { users: { email: profile.email.toLowerCase() } } });
+    const [publishedCourses, assignments, settings, attempts] = await Promise.all([
+      this.prisma.courses.findMany({
+        where: { status: { in: ['active', 'published'] } },
+        orderBy: { updated_at: 'desc' },
+      }),
+      academic
+        ? this.prisma.student_course_assignments.findMany({ where: { student_id: academic.id }, orderBy: { assigned_at: 'desc' } })
+        : Promise.resolve([]),
+      this.prisma.assignment_security_settings.findMany({
+        where: { published: true, active: true },
+        orderBy: { updated_at: 'desc' },
+      }),
+      this.prisma.assignment_attempts.findMany({
+        where: {
+          OR: [
+            { student_email: profile.email.toLowerCase() },
+            ...(academic ? [{ student_id: academic.id }] : []),
+          ],
+        },
+        orderBy: [{ started_at: 'desc' }, { id: 'desc' }],
+      }),
+    ]);
+    const demoAssessmentTitles = new Set(['TCS NQT Mock Set 4', 'Intro Module Check', 'Scanning Networks Quiz']);
+    const publishedSettings = settings.filter((setting) => !demoAssessmentTitles.has(setting.assignment_title));
+    const assignmentMap = new Map(assignments.map((assignment) => [assignment.course_id, assignment]));
+    const attemptOut = (attempt: (typeof attempts)[number], setting: (typeof settings)[number]) => {
+      return {
+        attempt_id: attempt.id,
+        assessment_id: attempt.assignment_id,
+        assessment_title: setting.assignment_title,
+        attempt_number: attempt.attempt_number ?? 1,
+        max_attempts: setting.max_attempts ?? 1,
+        duration_minutes: setting.duration_minutes ?? 0,
+        status: attempt.status,
+        score: attempt.score,
+        violations: attempt.violations,
+        started_at: attempt.started_at,
+        submitted_at: attempt.ended_at,
+      };
+    };
+    const assessmentOut = (setting: (typeof settings)[number]) => {
+      const assessmentAttempts = attempts.filter((attempt) => attempt.assignment_id === setting.assignment_id);
+      const completed = assessmentAttempts.filter((attempt) => attempt.status !== 'in_progress');
+      return {
+        assessment_id: setting.assignment_id,
+        assessment_title: setting.assignment_title,
+        max_attempts: setting.max_attempts ?? 1,
+        duration_minutes: setting.duration_minutes ?? 0,
+        question_count: Array.isArray(setting.questions_json) ? setting.questions_json.length : 0,
+        attempts_used: assessmentAttempts.length,
+        latest_score: completed[0]?.score ?? null,
+        latest_status: assessmentAttempts[0]?.status ?? 'not_attempted',
+        attempts: assessmentAttempts.map((attempt) => attemptOut(attempt, setting)),
+      };
+    };
+    const courses = publishedCourses.map((course) => {
+      const prefix = `course:${course.id}:`;
+      const courseSettings = publishedSettings.filter((setting) => setting.assignment_id.startsWith(prefix));
+      const courseAttempts = attempts.filter((attempt) => attempt.assignment_id.startsWith(prefix));
+      const completed = courseAttempts.filter((attempt) => attempt.status !== 'in_progress');
+      const metadata = course.metadata_json && typeof course.metadata_json === 'object'
+        ? course.metadata_json as Record<string, unknown>
+        : {};
+      const assignment = assignmentMap.get(course.id);
+      return {
+        id: course.id,
+        title: course.title,
+        category: course.category,
+        level: course.level,
+        status: course.status,
+        duration: String(metadata.duration ?? ''),
+        instructor: String(metadata.instructor ?? ''),
+        progress_percent: course.progress_percent,
+        assigned: Boolean(assignment),
+        assigned_at: assignment?.assigned_at ?? null,
+        assessment_count: courseSettings.length,
+        attempt_count: courseAttempts.length,
+        average_score: completed.length
+          ? Math.round(completed.reduce((sum, attempt) => sum + attempt.score, 0) / completed.length)
+          : null,
+        assessments: courseSettings.map(assessmentOut),
+      };
+    });
+    const standalone = publishedSettings
+      .filter((setting) => !/^course:\d+:/.test(setting.assignment_id))
+      .map(assessmentOut);
+    return {
+      student_id: id,
+      academic_student_id: academic?.id ?? null,
+      student_email: profile.email,
+      courses,
+      standalone_assessments: standalone,
+    };
+  }
+
+  async studentsOverview() {
+    const [total, suspended, waiting, completed, approved] = await Promise.all([
+      this.prisma.student_profiles.count(),
+      this.prisma.users.count({ where: { role: users_role.student, is_active: false } }),
+      this.prisma.student_profiles.count({ where: { status: { in: ['', 'Waiting for Student'] } } }),
+      this.prisma.student_profiles.count({ where: { status: 'Completed' } }),
+      this.prisma.student_profiles.count({ where: { status: 'Approved' } }),
+    ]);
+    return {
+      section: 'students',
+      summary: {
+        total_students: total, active_students: Math.max(0, total - suspended),
+        waiting_for_profile: waiting, profile_approval_pending: completed, approved_profiles: approved,
+      },
+    };
+  }
+
+  async messageStudent(id: number, message: string, actor: string) {
+    const profile = await this.prisma.student_profiles.findUnique({ where: { id } });
+    if (!profile) throw new NotFoundException('Student not found');
+    if (!profile.email.toLowerCase().endsWith('@cyberlancers.in')) {
+      throw new UnprocessableEntityException("Messages can only be delivered to a student's registered @cyberlancers.in email.");
+    }
+    await this.mail.sendStudentMessage(profile.email, profile.full_name || profile.first_name, message);
+    const row = await this.prisma.admin_student_messages.create({
+      data: {
+        student_email: profile.email.toLowerCase(), message: message.trim(),
+        sent_by: actor, sent_at: new Date(),
+      },
+    });
+    return {
+      id: row.id, student_email: row.student_email, message: row.message,
+      sent_at: row.sent_at.toISOString(), email_sent: true,
+    };
+  }
+
+  async scheduleReminder(id: number, dto: StudentReminderDto, actor: string) {
+    const profile = await this.prisma.student_profiles.findUnique({ where: { id } });
+    if (!profile) throw new NotFoundException('Student not found');
+    if (!profile.email.toLowerCase().endsWith('@cyberlancers.in')) {
+      throw new UnprocessableEntityException("Reminders can only be scheduled for a student's registered @cyberlancers.in email.");
+    }
+    const [hour, minute] = dto.send_time_ist.split(':').map(Number);
+    if (hour > 23 || minute > 59) throw new UnprocessableEntityException('Invalid IST reminder time');
+    const time = new Date(Date.UTC(1970, 0, 1, hour, minute));
+    const row = await this.prisma.student_daily_reminders.upsert({
+      where: { student_email: profile.email.toLowerCase() },
+      create: {
+        student_email: profile.email.toLowerCase(), student_name: profile.full_name || profile.first_name,
+        message: dto.message.trim(), send_time_ist: time, active: true, last_sent_on: null,
+        created_by: actor, updated_at: new Date(),
+      },
+      update: {
+        student_name: profile.full_name || profile.first_name, message: dto.message.trim(),
+        send_time_ist: time, active: true, created_by: actor, updated_at: new Date(),
+      },
+    });
+    return { id: row.id, student_email: row.student_email, send_time_ist: dto.send_time_ist, active: row.active };
+  }
+
+  async assignCourse(id: number, dto: StudentCourseDto, actor: string) {
+    const [profile, course] = await Promise.all([
+      this.prisma.student_profiles.findUnique({ where: { id } }),
+      this.prisma.courses.findUnique({ where: { id: dto.course_id } }),
+    ]);
+    if (!profile) throw new NotFoundException('Student not found');
+    if (!course || !['active', 'published'].includes(course.status)) throw new NotFoundException('Published course not found');
+    const academic = await this.prisma.students.findFirst({ where: { users: { email: profile.email } } });
+    if (!academic) throw new ConflictException('Student academic account is not linked');
+    await this.prisma.$transaction([
+      this.prisma.student_course_assignments.upsert({
+        where: { student_id_course_id: { student_id: academic.id, course_id: course.id } },
+        create: { student_id: academic.id, course_id: course.id, assigned_by: actor, assigned_at: new Date() },
+        update: { assigned_by: actor, assigned_at: new Date() },
+      }),
+      this.prisma.student_profiles.update({ where: { id }, data: { tag: course.title, updated_at: new Date() } }),
+      this.prisma.portal_access_settings.upsert({
+        where: { scope_key: profile.email.toLowerCase() },
+        create: {
+          scope_key: profile.email.toLowerCase(), courses_enabled: true, assessments_enabled: false,
+          jobs_enabled: false, updated_by: actor, updated_at: new Date(),
+        },
+        update: { courses_enabled: true, updated_by: actor, updated_at: new Date() },
+      }),
+    ]);
+    return { assigned: true, student_id: id, course_id: course.id, course_title: course.title };
+  }
+
+  async resetStudentPassword(id: number) {
+    const profile = await this.prisma.student_profiles.findUnique({ where: { id } });
+    if (!profile) throw new NotFoundException('Student not found');
+    const user = await this.prisma.users.findUnique({ where: { email: profile.email } });
+    if (!user || user.role !== users_role.student) throw new ConflictException('Student login account is not linked');
+    const password = `Ca!${randomBytes(8).toString('base64url')}`;
+    const recipient = (profile.personal_email || profile.email).trim().toLowerCase();
+    const portal = `${this.config.get<string>('studentFrontendUrl')?.replace(/\/+$/, '')}/student/login`;
+    await this.mail.sendStudentCredentials(recipient, profile.full_name || profile.first_name || profile.email, portal, profile.email, password);
+    await this.prisma.users.update({ where: { id: user.id }, data: { hashed_password: await bcrypt.hash(password, 12) } });
+    return { reset: true, student_id: id, recipient, message: 'Temporary password emailed and activated successfully.' };
+  }
+
+  async createStudent(dto: StudentAccountDto) {
+    const email = dto.credential_email.trim().toLowerCase();
+    const deliveryEmail = dto.email.trim().toLowerCase();
+    if (dto.username.trim().toLowerCase() !== email) {
+      throw new UnprocessableEntityException('Draft username and Cyber Lancers login email must be identical');
+    }
+    const domain = `@${this.config.get<string>('studentEmailDomain')}`;
+    if (!email.endsWith(domain)) throw new UnprocessableEntityException(`Student login email must end with ${domain}`);
+    const hash = await bcrypt.hash(dto.temp_password, 12);
+    const result = await this.prisma.$transaction(async (tx) => {
+      let profile = await tx.student_profiles.findFirst({
+        where: { OR: [{ registration_number: dto.register_number }, { cyberlancers_id: dto.register_number }] },
+      });
+      const created = !profile;
+      const data = {
+        email, full_name: dto.name.trim(), first_name: dto.name.trim().split(/\s+/)[0],
+        registration_number: dto.register_number, phone: dto.phone ?? '', course: dto.degree ?? '',
+        department: dto.branch ?? '', batch: dto.batch ?? '', status: profile?.status || 'Waiting for Student',
+        tag: 'Profile Pending', updated_at: new Date(),
+      };
+      profile = profile
+        ? await tx.student_profiles.update({ where: { id: profile.id }, data })
+        : await tx.student_profiles.create({
+          data: {
+            ...data, cyberlancers_id: '', gender: '', date_of_birth: '', college: '',
+            resume_url: '', mentor_name: '', personal_email: null,
+          },
+        });
+      const user = await tx.users.upsert({
+        where: { email },
+        create: { email, hashed_password: hash, role: users_role.student, is_active: true, created_at: new Date() },
+        update: { hashed_password: hash, role: users_role.student, is_active: true },
+      });
+      let department = await tx.departments.findUnique({ where: { name: dto.branch || 'General' } });
+      if (!department) {
+        const name = dto.branch || 'General';
+        department = await tx.departments.create({
+          data: { name, code: (name.toUpperCase().replace(/[^A-Z0-9]/g, '') || 'GENERAL').slice(0, 20) },
+        });
+      }
+      await tx.students.upsert({
+        where: { usn: dto.register_number },
+        create: {
+          user_id: user.id, department_id: department.id, full_name: dto.name,
+          usn: dto.register_number, cgpa: new Prisma.Decimal(0), skills: '',
+        },
+        update: { user_id: user.id, department_id: department.id, full_name: dto.name },
+      });
+      if (created) {
+        await tx.portal_access_settings.upsert({
+          where: { scope_key: email },
+          create: {
+            scope_key: email, courses_enabled: false, assessments_enabled: false,
+            jobs_enabled: false, updated_by: '', updated_at: new Date(),
+          }, update: {},
+        });
+      }
+      return { profile, created };
+    });
+    const response: any = await this.profileResponse(result.profile);
+    if (dto.send_credentials) {
+      try {
+        await this.mail.sendStudentCredentials(deliveryEmail, dto.name, dto.portal_link, email, dto.temp_password);
+      } catch (error) {
+        throw new BadGatewayException(`Student account was created, but credential email was not sent: ${error instanceof Error ? error.message : String(error)}. Use Send Portal Login to retry.`);
+      }
+      response.credential_email_sent = true;
+      response.credential_delivery_message = 'Credential email sent';
+    }
+    return response;
+  }
+
+  async sendCredentials(id: number, dto: CredentialSendDto) {
+    const profile = await this.prisma.student_profiles.findUnique({ where: { id } });
+    if (!profile) throw new NotFoundException('Student not found');
+    const oldEmail = profile.email.toLowerCase();
+    const loginEmail = dto.login_email.toLowerCase();
+    const domain = `@${this.config.get<string>('studentEmailDomain')}`;
+    if (!loginEmail.endsWith(domain)) throw new UnprocessableEntityException(`Student login email must end with ${domain}`);
+    const user = await this.prisma.users.findUnique({ where: { email: oldEmail } });
+    if (!user) throw new ConflictException('Student login account does not exist. Create the account first.');
+    await this.mail.sendStudentCredentials(dto.recipient_email.toLowerCase(), dto.student_name, dto.portal_link, loginEmail, dto.temp_password);
+    await this.prisma.$transaction([
+      this.prisma.student_profiles.update({
+        where: { id }, data: {
+          email: loginEmail, full_name: dto.student_name.trim(),
+          first_name: dto.student_name.trim().split(/\s+/)[0], updated_at: new Date(),
+        },
+      }),
+      this.prisma.users.update({
+        where: { id: user.id },
+        data: { email: loginEmail, hashed_password: await bcrypt.hash(dto.temp_password, 12), role: users_role.student, is_active: true },
+      }),
+      this.prisma.portal_access_settings.updateMany({ where: { scope_key: oldEmail }, data: { scope_key: loginEmail } }),
+    ]);
+    return {
+      student_id: id, login_email: loginEmail, delivered_to: dto.recipient_email.toLowerCase(),
+      password_verified: true, sent: true, message: 'Credential email sent',
+    };
+  }
+
+  async setStudentStatus(id: number, status: string) {
+    const profile = await this.prisma.student_profiles.findUnique({ where: { id } });
+    if (!profile) throw new NotFoundException('Student not found');
+    const updated = await this.prisma.student_profiles.update({
+      where: { id },
+      data: {
+        status,
+        tag: status === 'Approved' ? 'Profile Approved - Course Pending' : 'Profile Completed - Approval Pending',
+        updated_at: new Date(),
+      },
+    });
+    return this.profileResponse(updated);
+  }
+
+  async suspendStudent(id: number) {
+    const profile = await this.prisma.student_profiles.findUnique({ where: { id } });
+    if (!profile) throw new NotFoundException('Student not found');
+    const updated = await this.prisma.student_profiles.update({ where: { id }, data: { status: 'suspended', updated_at: new Date() } });
+    await this.prisma.users.updateMany({ where: { email: profile.email }, data: { is_active: false } });
+    return this.profileResponse(updated);
+  }
+
+  async deleteStudent(id: number) {
+    const profile = await this.prisma.student_profiles.findUnique({ where: { id } });
+    if (!profile) throw new NotFoundException('Student not found');
+    const email = profile.email.toLowerCase();
+    const user = await this.prisma.users.findUnique({ where: { email }, include: { students: true } });
+    const studentId = user?.students[0]?.id;
+    await this.prisma.$transaction(async (tx) => {
+      if (studentId) {
+        const attempts = await tx.assignment_attempts.findMany({ where: { OR: [{ student_id: studentId }, { student_email: email }] }, select: { id: true } });
+        await tx.assignment_events.deleteMany({ where: { attempt_id: { in: attempts.map((row) => row.id) } } });
+        await tx.assignment_attempts.deleteMany({ where: { OR: [{ student_id: studentId }, { student_email: email }] } });
+        await tx.student_course_assignments.deleteMany({ where: { student_id: studentId } });
+        await tx.resume_analyses.deleteMany({ where: { student_id: studentId } });
+        await tx.assessment_submissions.deleteMany({ where: { student_id: studentId } });
+        await tx.applications.deleteMany({ where: { student_id: studentId } });
+        await tx.students.delete({ where: { id: studentId } });
+      }
+      await tx.admin_student_messages.deleteMany({ where: { student_email: email } });
+      await tx.student_daily_reminders.deleteMany({ where: { student_email: email } });
+      await tx.student_job_search_preferences.deleteMany({ where: { student_email: email } });
+      await tx.portal_access_settings.deleteMany({ where: { scope_key: email } });
+      await tx.email_otps.deleteMany({ where: { email } });
+      await tx.password_reset_tokens.deleteMany({ where: { email } });
+      await tx.student_profiles.delete({ where: { id } });
+      if (user) await tx.users.delete({ where: { id: user.id } });
+    });
+    return { deleted: true, student_id: id, email, message: 'Student account and associated data were permanently deleted.' };
+  }
+
+  @Cron('*/1 * * * *')
+  async sendDueReminders() {
+    const now = new Date();
+    const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const today = new Date(Date.UTC(ist.getFullYear(), ist.getMonth(), ist.getDate()));
+    const minute = ist.getHours() * 60 + ist.getMinutes();
+    const rows = await this.prisma.student_daily_reminders.findMany({ where: { active: true } });
+    for (const row of rows) {
+      if (row.last_sent_on?.toISOString().slice(0, 10) === today.toISOString().slice(0, 10)) continue;
+      const sendMinute = row.send_time_ist.getUTCHours() * 60 + row.send_time_ist.getUTCMinutes();
+      if (minute < sendMinute) continue;
+      try {
+        await this.mail.sendStudentMessage(row.student_email, row.student_name, row.message);
+        await this.prisma.student_daily_reminders.update({ where: { id: row.id }, data: { last_sent_on: today } });
+      } catch {
+        // Leave last_sent_on unchanged so the next scheduler cycle retries.
+      }
+    }
+  }
+
+  async provisionStudentLogin(dto: LegacyStudentLoginDto) {
+    const email = dto.email.toLowerCase();
+    const domain = `@${this.config.get<string>('studentEmailDomain')}`;
+    if (!email.endsWith(domain)) throw new ForbiddenException(`Student email must end with ${domain}`);
+    const password = dto.password || `Ca!${randomBytes(8).toString('base64url')}`;
+    const name = dto.full_name.trim() || dto.username.trim() || email.split('@')[0];
+    const registration = (dto.registration_number || dto.cyberlancers_id || email.split('@')[0]).slice(0, 40);
+    const existing = await this.prisma.users.findUnique({ where: { email } });
+    const result = await this.createStudent({
+      name, register_number: registration, email, username: email, credential_email: email,
+      temp_password: password,
+      portal_link: `${this.config.get<string>('studentFrontendUrl')?.replace(/\/+$/, '')}/student/login`,
+      degree: dto.course, branch: dto.department, batch: dto.batch, phone: '',
+      send_credentials: dto.send_email,
+    });
+    const academic = await this.prisma.students.findFirst({ where: { users: { email } } });
+    return {
+      ok: true, created: !existing, email, username: email, student_id: academic?.id,
+      email_sent: result.credential_email_sent, email_error: '',
+      message: 'Student login is active and can be used in the normal login flow.',
+    };
+  }
+}

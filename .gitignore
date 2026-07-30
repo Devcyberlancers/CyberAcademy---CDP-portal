@@ -1,0 +1,70 @@
+# Dependencies
+**/node_modules/
+
+# Next.js and Node build output
+**/.next/
+**/out/
+**/dist/
+**/coverage/
+**/.playwright/
+**/*.tsbuildinfo
+
+# Local environment and secrets
+**/.env
+**/.env.local
+**/.env.production
+**/.env.development.local
+**/.env.test.local
+!**/.env.example
+!**/.env.local.example
+!**/.env.production.example
+
+# Python/legacy local artifacts
+**/.venv/
+**/venv/
+**/__pycache__/
+**/*.py[cod]
+
+# Runtime data
+**/.runtime/
+**/logs/
+**/*.log
+**/*.pid
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+
+# Uploads and generated reports
+**/uploads/
+**/exports/
+**/outputs/
+**/work/
+**/reports/generated/
+**/*.sql
+**/*.dump
+
+# Secrets and certificates
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Local tooling
+.agents/
+.codex/
+**/.agents/
+**/.codex/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+~$*

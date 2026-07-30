@@ -1,0 +1,14 @@
+.git
+.agents
+.next
+frontend/.next
+node_modules
+frontend/node_modules
+backend/.venv
+backend/.env
+frontend/.env*
+__pycache__
+*.pyc
+*.log
+database
+docs

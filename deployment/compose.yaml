@@ -1,0 +1,147 @@
+name: cyber-academy
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    logging: *default-logging
+    networks: [academy]
+
+  api:
+    build:
+      context: "../backend"
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "8000"
+      ENABLE_SWAGGER: "false"
+      CORS_ORIGINS: https://${STUDENT_DOMAIN},https://${ADMIN_DOMAIN}
+      TRUSTED_HOSTS: ${STUDENT_API_DOMAIN},${ADMIN_API_DOMAIN},api,127.0.0.1,localhost
+      DATABASE_URL: mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_MINUTES: "1440"
+      STUDENT_EMAIL_DOMAIN: cyberlancers.in
+      ADMIN_EMAIL_DOMAIN: cyberlancers.in
+      ADMIN_SETUP_TOKEN: ${ADMIN_SETUP_TOKEN}
+      STUDENT_FRONTEND_URL: https://${STUDENT_DOMAIN}
+      ADMIN_FRONTEND_URL: https://${ADMIN_DOMAIN}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME}
+      SMTP_TLS: "true"
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+      NVIDIA_MODEL: ${NVIDIA_MODEL:-meta/llama-3.3-70b-instruct}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:8000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+    init: true
+    logging: *default-logging
+    networks: [academy]
+
+  student-web:
+    build:
+      context: "../Student/Students portal"
+      dockerfile: Dockerfile.frontend
+      args:
+        NEXT_PUBLIC_API_URL: https://${STUDENT_API_DOMAIN}
+        NEXT_PUBLIC_ADMIN_PORTAL_URL: https://${ADMIN_DOMAIN}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/favicon.ico >/dev/null 2>&1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    init: true
+    logging: *default-logging
+    networks: [academy]
+
+  admin-web:
+    build:
+      context: "../Admin/Admin_panel/i-need-the-full-working-of"
+      dockerfile: Dockerfile.frontend
+      args:
+        NEXT_PUBLIC_API_BASE_URL: https://${ADMIN_API_DOMAIN}
+        NEXT_PUBLIC_STUDENT_API_BASE_URL: https://${STUDENT_API_DOMAIN}
+        NEXT_PUBLIC_STUDENT_PORTAL_URL: https://${STUDENT_DOMAIN}
+        NEXT_PUBLIC_STUDENT_PORTAL_LINK: https://${STUDENT_DOMAIN}
+        NEXT_PUBLIC_DEFAULT_SENDER_EMAIL: ${SMTP_FROM_EMAIL}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/favicon.ico >/dev/null 2>&1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    init: true
+    logging: *default-logging
+    networks: [academy]
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    environment:
+      STUDENT_DOMAIN: ${STUDENT_DOMAIN}
+      ADMIN_DOMAIN: ${ADMIN_DOMAIN}
+      STUDENT_API_DOMAIN: ${STUDENT_API_DOMAIN}
+      ADMIN_API_DOMAIN: ${ADMIN_API_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      student-web:
+        condition: service_healthy
+      admin-web:
+        condition: service_healthy
+    logging: *default-logging
+    networks: [academy]
+
+networks:
+  academy:
+    driver: bridge
+
+volumes:
+  mysql_data:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project:
+          - name: backend
+            directory: backend
+          - name: student
+            directory: Student/Students portal
+          - name: admin
+            directory: Admin/Admin_panel/i-need-the-full-working-of/frontend
+
+    name: ${{ matrix.project.name }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.project.directory }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ${{ matrix.project.directory }}/package-lock.json
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build

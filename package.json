@@ -1,0 +1,8 @@
+{
+  "name": "cyber-academy",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start:all": "npm --prefix backend run start:all"
+  }
+}

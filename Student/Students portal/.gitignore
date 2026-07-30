@@ -1,0 +1,14 @@
+.next
+frontend/.next
+node_modules
+frontend/node_modules
+out
+frontend/out
+dist
+frontend/dist
+.env
+.env.local
+.venv
+__pycache__
+*.pyc
+*.log

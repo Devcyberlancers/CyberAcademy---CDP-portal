@@ -1,0 +1,62 @@
+{
+	email admin@cyberlancers.in
+	servers {
+		protocols h1 h2 h3
+	}
+}
+
+{$STUDENT_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy student-web:3000
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-X-Powered-By
+	}
+}
+
+{$ADMIN_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy admin-web:3001
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-X-Powered-By
+	}
+}
+
+{$STUDENT_API_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy api:8000
+	request_body {
+		max_size 25MB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		-X-Powered-By
+	}
+}
+
+{$ADMIN_API_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy api:8000
+	request_body {
+		max_size 25MB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		-X-Powered-By
+	}
+}
