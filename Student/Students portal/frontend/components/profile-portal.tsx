@@ -26,7 +26,7 @@ export function ProfilePortal() {
     if (localStudent.email) {
       void fetchStudentProfile(localStudent.email).then((profile) => {
         if (profile) setStudent(profile);
-      });
+      }).catch(() => undefined);
     }
   }, []);
 

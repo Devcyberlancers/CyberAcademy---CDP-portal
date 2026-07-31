@@ -23,6 +23,7 @@ export type StudentAccount = {
 };
 
 export const studentAccountStorageKey = "cyber-academy-student-account";
+const authTokenStorageKey = "cyber-academy-auth-token";
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
 export const defaultStudentAccount: StudentAccount = {
@@ -81,23 +82,43 @@ export function saveStudentAccount(account: StudentAccount) {
 
 export async function fetchStudentProfile(email: string): Promise<StudentAccount | null> {
   if (!email) return null;
-  try {
+  const token = typeof window === "undefined" ? null : window.localStorage.getItem(authTokenStorageKey);
+  if (!token) throw new Error("Your login session is missing. Please log in again.");
+
+  let lastError: Error | null = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
     const url = new URL("/api/student-profile", apiBaseUrl);
-    url.searchParams.set("email", email);
-    const response = await fetch(url.toString());
-    if (!response.ok) return null;
-    return fromApiProfile(await response.json());
-  } catch {
-    return null;
+      const response = await fetch(url.toString(), { cache: "no-store", headers: { Authorization: `Bearer ${token}` } });
+      if (response.status === 401 || response.status === 403) {
+        window.localStorage.removeItem(authTokenStorageKey);
+        throw new Error("Your login session has expired. Please log in again.");
+      }
+      if (response.status === 404) return null;
+      if (!response.ok) throw new Error(`Profile service is unavailable (${response.status}).`);
+      const profile = fromApiProfile(await response.json());
+      saveStudentAccount(profile);
+      return profile;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error("Profile could not be loaded.");
+      if (attempt < 3 && !lastError.message.includes("session")) {
+        await new Promise((resolve) => window.setTimeout(resolve, attempt * 500));
+        continue;
+      }
+      throw lastError;
+    }
   }
+  throw lastError ?? new Error("Profile could not be loaded.");
 }
 
 export async function persistStudentProfile(account: StudentAccount): Promise<StudentAccount> {
   saveStudentAccount(account);
   if (!account.email) return account;
+  const token = typeof window === "undefined" ? null : window.localStorage.getItem(authTokenStorageKey);
+  if (!token) throw new Error("Your session has expired. Please log in again before saving your profile.");
   const response = await fetch(new URL("/api/student-profile", apiBaseUrl).toString(), {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify(toApiProfile(account))
   });
   if (!response.ok) {

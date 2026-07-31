@@ -16,7 +16,7 @@ import {
   Video,
   Youtube
 } from "lucide-react";
-import { getAdminSnapshot, saveAdminSnapshot } from "@/lib/admin-api";
+import { getAdminSnapshot, getCourseAssessments, saveAdminSnapshot, saveCourseAssessments } from "@/lib/admin-api";
 
 type QuizQuestion = {
   question: string;
@@ -39,6 +39,7 @@ type ModuleItem = {
   unlockRule: "video_quiz" | "video" | "manual";
   generatedQuestions: QuizQuestion[];
 };
+type StoredAssessment = { id?: string } & Record<string, unknown>;
 
 type CourseContentBuilderProps = {
   courseId: string;
@@ -75,8 +76,34 @@ function normalizeModule(module: Partial<ModuleItem> & { title: string }): Modul
   };
 }
 
+// Sequencing starts after the first module.  The first lesson is always the
+// entry point to a course, even for courses saved before this rule existed.
+function normalizeModuleSequence(items: ModuleItem[]) {
+  return items.map((item, index) => ({ ...item, locked: index === 0 ? false : item.locked }));
+}
+
 function slugify(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "module";
+}
+
+function moduleAssessmentItems(modules: ModuleItem[]) {
+  return modules.flatMap((module, index) => {
+    if (!module.generatedQuestions.length) return [];
+    return [{
+      id: `module-${index + 1}-${slugify(module.title)}`,
+      module: module.title || `Module ${index + 1}`,
+      title: module.quiz || `${module.title || `Module ${index + 1}`} Quiz`,
+      passPercent: 60,
+      maxAttempts: 3,
+      requiredToUnlock: module.unlockRule !== "manual",
+      questions: module.generatedQuestions.map((question, questionIndex) => ({
+        id: `module-${index + 1}-q${questionIndex + 1}`,
+        text: question.question,
+        options: question.options,
+        answer: question.answer,
+      })),
+    }];
+  });
 }
 
 function videoContext(module: ModuleItem) {
@@ -132,7 +159,7 @@ export function CourseContentBuilder({ courseId }: CourseContentBuilderProps) {
       const snapshot = await getAdminSnapshot<ModuleItem[]>(modulesStorageKey);
       if (!active) return;
       if (snapshot?.length) {
-        const normalized = removeLegacyDemoModules(snapshot.map((module) => normalizeModule(module)));
+        const normalized = normalizeModuleSequence(removeLegacyDemoModules(snapshot.map((module) => normalizeModule(module))));
         setModules(normalized);
         if (normalized[0]) {
           setSelectedIndex(0);
@@ -151,7 +178,7 @@ export function CourseContentBuilder({ courseId }: CourseContentBuilderProps) {
         try {
           const parsed = JSON.parse(saved) as ModuleItem[];
           if (Array.isArray(parsed) && parsed.length > 0) {
-            const normalized = removeLegacyDemoModules(parsed.map((module) => normalizeModule(module)));
+            const normalized = normalizeModuleSequence(removeLegacyDemoModules(parsed.map((module) => normalizeModule(module))));
             setModules(normalized);
             if (normalized[0]) {
               setSelectedIndex(0);
@@ -174,9 +201,12 @@ export function CourseContentBuilder({ courseId }: CourseContentBuilderProps) {
 
   useEffect(() => {
     if (!hydrated) return;
-    window.localStorage.setItem(modulesStorageKey, JSON.stringify(modules));
-    void saveAdminSnapshot(modulesStorageKey, modules).catch(() => undefined);
-    const moduleQuizzes = modules
+    const sequencedModules = normalizeModuleSequence(modules);
+    window.localStorage.setItem(modulesStorageKey, JSON.stringify(sequencedModules));
+    void saveAdminSnapshot(modulesStorageKey, sequencedModules).catch((error) => {
+      setNotice(error instanceof Error ? error.message : "Course modules could not be saved to the database.");
+    });
+    const moduleQuizzes = sequencedModules
       .filter((module) => module.generatedQuestions.length > 0)
       .map((module, moduleIndex) => ({
         id: `MQ-${moduleIndex + 1}-${slugify(module.title)}`,
@@ -194,10 +224,36 @@ export function CourseContentBuilder({ courseId }: CourseContentBuilderProps) {
         }))
       }));
     window.localStorage.setItem(moduleQuizStorageKey, JSON.stringify(moduleQuizzes));
-    void saveAdminSnapshot(moduleQuizStorageKey, moduleQuizzes).catch(() => undefined);
-  }, [hydrated, moduleQuizStorageKey, modules, modulesStorageKey]);
+    void saveAdminSnapshot(moduleQuizStorageKey, moduleQuizzes).catch((error) => {
+      setNotice(error instanceof Error ? error.message : "Course quiz draft could not be saved to the database.");
+    });
+    // Course module quizzes stay inside the course flow. Remove only legacy
+    // module quiz records created by older builds; separately authored course
+    // assessments are preserved.
+    void getCourseAssessments<StoredAssessment[]>(courseId)
+      .then((existing) => saveCourseAssessments(courseId, [
+        ...(existing ?? []).filter((item) => !String(item.id ?? "").startsWith("module-")),
+      ]))
+      .catch((error) => setNotice(error instanceof Error ? error.message : "Legacy module quiz cleanup could not be saved."));
+  }, [courseId, hydrated, moduleQuizStorageKey, modules, modulesStorageKey]);
 
   const selectedModule = modules[selectedIndex];
+
+  // Keep the selected editor draft and the persisted module collection in
+  // sync. The old flow only saved when the admin remembered to press Update,
+  // so changing modules could discard a complete lesson or quiz.
+  useEffect(() => {
+    if (!hydrated) return;
+    const timer = window.setTimeout(() => {
+      setModules((current) => {
+        if (!current[selectedIndex]) return current;
+        const next = [...current];
+        next[selectedIndex] = draft;
+        return normalizeModuleSequence(next);
+      });
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [draft, hydrated, selectedIndex]);
 
   const completionRule = useMemo(() => {
     if (draft.unlockRule === "video") return "Next module opens after video completion.";
@@ -206,6 +262,15 @@ export function CourseContentBuilder({ courseId }: CourseContentBuilderProps) {
   }, [draft.unlockRule]);
 
   function selectModule(index: number) {
+    // Commit immediately as well, so a rapid click between module rows never
+    // races the short autosave debounce above.
+    if (modules[selectedIndex]) {
+      setModules((current) => {
+        const next = [...current];
+        next[selectedIndex] = draft;
+        return normalizeModuleSequence(next);
+      });
+    }
     setSelectedIndex(index);
     setDraft(modules[index]);
     setNotice(`Editing ${modules[index].title}`);
@@ -224,10 +289,10 @@ export function CourseContentBuilder({ courseId }: CourseContentBuilderProps) {
       title: "",
       videoUrl: "",
       quiz: "",
-      locked: true,
+      locked: modules.length > 0,
       unlockRule: "video_quiz"
     });
-    const nextModules = [...modules, next];
+    const nextModules = normalizeModuleSequence([...modules, next]);
     setModules(nextModules);
     setSelectedIndex(nextModules.length - 1);
     setDraft(next);
@@ -235,7 +300,7 @@ export function CourseContentBuilder({ courseId }: CourseContentBuilderProps) {
   }
 
   function deleteModule(index: number) {
-    const next = modules.filter((_, itemIndex) => itemIndex !== index);
+    const next = normalizeModuleSequence(modules.filter((_, itemIndex) => itemIndex !== index));
     setModules(next);
     const safeIndex = Math.max(0, Math.min(selectedIndex, next.length - 1));
     setSelectedIndex(safeIndex);
@@ -428,16 +493,22 @@ export function CourseContentBuilder({ courseId }: CourseContentBuilderProps) {
                     type="file"
                     multiple
                     className="hidden"
-                    onChange={(event) => {
-                      const files = Array.from(event.target.files ?? []).map((file) => file.name);
-                      setDraft({ ...draft, resources: [...draft.resources, ...files] });
+                    onChange={async (event) => {
+                      const files = Array.from(event.target.files ?? []);
+                      const resources = await Promise.all(files.map((file) => new Promise<string>((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => resolve(String(reader.result));
+                        reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
+                        reader.readAsDataURL(file);
+                      })));
+                      setDraft({ ...draft, resources: [...draft.resources, ...resources] });
                     }}
                   />
                 </label>
                 {draft.resources.length ? (
                   <div className="mt-2 flex flex-wrap gap-2">
                     {draft.resources.map((resource) => (
-                      <span key={resource} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">{resource}</span>
+                      <span key={resource} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">{resource.startsWith("data:") ? "Uploaded resource" : resource}</span>
                     ))}
                   </div>
                 ) : null}

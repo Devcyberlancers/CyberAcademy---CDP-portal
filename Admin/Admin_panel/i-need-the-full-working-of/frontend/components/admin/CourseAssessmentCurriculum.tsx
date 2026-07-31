@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ClipboardList, Eye, HelpCircle, ImagePlus, Plus, Send, Trash2 } from "lucide-react";
-import { getCourseAssessments, publishCourseInDb, saveCourseAssessments } from "@/lib/admin-api";
+import { getAdminSnapshot, getCourseAssessments, publishCourseInDb, saveAdminSnapshot, saveCourseAssessments } from "@/lib/admin-api";
 
 type CourseQuestion = {
   id: string;
@@ -75,6 +75,7 @@ function removeLegacyDemoAssessments(items: CourseAssessment[]) {
 
 export function CourseAssessmentCurriculum({ courseId }: { courseId: string }) {
   const storageKey = `course-assessment-curriculum-${courseId}-v2`;
+  const draftStorageKey = `course-assessment-draft-${courseId}-v1`;
   const [assessments, setAssessments] = useState<CourseAssessment[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [notice, setNotice] = useState("No assessments yet. Add one when the course needs a test.");
@@ -83,8 +84,12 @@ export function CourseAssessmentCurriculum({ courseId }: { courseId: string }) {
   useEffect(() => {
     let active = true;
     async function loadAssessments() {
-      const savedAssessments = await getCourseAssessments<CourseAssessment[]>(courseId);
+      const [draftAssessments, publishedAssessments] = await Promise.all([
+        getAdminSnapshot<CourseAssessment[]>(draftStorageKey),
+        getCourseAssessments<CourseAssessment[]>(courseId),
+      ]);
       if (!active) return;
+      const savedAssessments = draftAssessments ?? publishedAssessments;
       if (savedAssessments?.length) {
         const normalized = removeLegacyDemoAssessments(savedAssessments.map(normalizeAssessment));
         setAssessments(normalized);
@@ -115,12 +120,18 @@ export function CourseAssessmentCurriculum({ courseId }: { courseId: string }) {
     return () => {
       active = false;
     };
-  }, [courseId, storageKey]);
+  }, [courseId, draftStorageKey, storageKey]);
 
   useEffect(() => {
     if (!hydrated) return;
     window.localStorage.setItem(storageKey, JSON.stringify(assessments));
-  }, [assessments, courseId, hydrated, storageKey]);
+    const timer = window.setTimeout(() => {
+      void saveAdminSnapshot(draftStorageKey, assessments)
+        .then(() => setNotice((current) => current.startsWith("Saving assessment") ? current : "Assessment draft saved to the admin database."))
+        .catch((error) => setNotice(error instanceof Error ? error.message : "Assessment draft could not be saved to the database."));
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [assessments, draftStorageKey, hydrated, storageKey]);
 
   const selected = assessments.find((assessment) => assessment.id === selectedId) ?? assessments[0];
   const totalMarks = useMemo(

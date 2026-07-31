@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { SectionCard } from "@/components/admin/SectionCard";
-import { getStandaloneAssessments, getStudentAssessmentAttempt, listStudentAssessmentAttempts, saveStandaloneAssessments } from "@/lib/admin-api";
+import { getAdminSnapshot, getStandaloneAssessments, getStudentAssessmentAttempt, listStudentAssessmentAttempts, saveAdminSnapshot, saveStandaloneAssessments } from "@/lib/admin-api";
 import { loadCourseCatalog } from "@/lib/course-catalog";
 import { downloadCsv, downloadPdf, type ReportRow } from "@/lib/report-download";
 import { AlertTriangle, CheckCircle2, ClipboardList, Download, FileCheck2, FileText, ImagePlus, Plus, RefreshCw, Save, Search, Send, ShieldCheck, Trash2, Users, X, XCircle } from "lucide-react";
@@ -67,6 +67,8 @@ type StandaloneSubmission = {
   proctoringStatus: "Clean" | "Warning" | "Flagged";
   answers: StandaloneAnswer[];
 };
+
+const standaloneDraftStorageKey = "admin-standalone-assessments-draft-v1";
 
 const assessmentsStorageKey = "standalone-assessments-v4";
 const submissionsStorageKey = "standalone-assessment-submissions-v1";
@@ -247,15 +249,16 @@ export default function AssessmentsPage() {
     setSubmissions(localSubmissions);
     setSelectedSubmissionId("");
     void Promise.all([
+      getAdminSnapshot<StandaloneAssessment[]>(standaloneDraftStorageKey),
       getStandaloneAssessments<StandaloneAssessment[]>(),
       Promise.resolve(null as StandaloneSubmission[] | null)
-    ]).then(([assessmentSnapshot, submissionSnapshot]) => {
+    ]).then(([draftSnapshot, assessmentSnapshot, submissionSnapshot]) => {
       if (!active) return;
-      if (assessmentSnapshot?.length) {
-        const cleanAssessments = assessmentSnapshot.filter((item) => !(item.id === "ASM-001" && item.title === "TCS NQT Mock Set 4"));
+      const savedAssessments = draftSnapshot ?? assessmentSnapshot;
+      if (savedAssessments) {
+        const cleanAssessments = savedAssessments.filter((item) => !(item.id === "ASM-001" && item.title === "TCS NQT Mock Set 4"));
         setAssessments(cleanAssessments);
         setSelectedAssessmentId(cleanAssessments[0]?.id ?? "");
-        if (!cleanAssessments.length) void saveStandaloneAssessments([]);
       }
       if (submissionSnapshot?.length) {
         setSubmissions(submissionSnapshot);
@@ -272,6 +275,12 @@ export default function AssessmentsPage() {
   useEffect(() => {
     if (!hydrated) return;
     window.localStorage.setItem(assessmentsStorageKey, JSON.stringify(assessments));
+    const timer = window.setTimeout(() => {
+      void saveAdminSnapshot(standaloneDraftStorageKey, assessments)
+        .then(() => setSaveNotice((current) => current.startsWith("Saving assessment") ? current : "Draft saved to the admin database."))
+        .catch((error) => setSaveNotice(error instanceof Error ? error.message : "Draft could not be saved to the database."));
+    }, 600);
+    return () => window.clearTimeout(timer);
   }, [assessments, hydrated]);
 
   const totalMarks = useMemo(() => selectedAssessment?.questions.reduce((sum, question) => sum + Number(question.marks || 0), 0) ?? 0, [selectedAssessment]);

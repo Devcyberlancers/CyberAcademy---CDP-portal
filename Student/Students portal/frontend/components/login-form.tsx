@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { buildStudentAccount, saveStudentAccount } from "@/lib/student-account";
+import { buildStudentAccount, fetchStudentProfile, saveStudentAccount } from "@/lib/student-account";
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 const authTokenStorageKey = "cyber-academy-auth-token";
@@ -65,15 +65,26 @@ export function LoginForm() {
       return;
     }
     const token = (await response.json()) as { access_token?: string; role?: string };
-    if (token.access_token) {
-      window.localStorage.setItem(authTokenStorageKey, token.access_token);
+    if (!token.access_token || !token.role) {
+      setError("password", { type: "manual", message: "Login response was incomplete. Please try again." });
+      return;
     }
+    window.localStorage.setItem(authTokenStorageKey, token.access_token);
     if (token.role === "admin") {
       const adminPortalUrl = process.env.NEXT_PUBLIC_ADMIN_PORTAL_URL ?? "http://localhost:3001";
       window.location.href = `${adminPortalUrl}/auth/callback#token=${encodeURIComponent(token.access_token ?? "")}`;
       return;
     }
-    saveStudentAccount(buildStudentAccount(values.email.trim().toLowerCase()));
+    const account = buildStudentAccount(values.email.trim().toLowerCase());
+    saveStudentAccount(account);
+    try {
+      const profile = await fetchStudentProfile(account.email);
+      if (profile) saveStudentAccount(profile);
+    } catch (error) {
+      window.localStorage.removeItem(authTokenStorageKey);
+      setError("password", { type: "manual", message: error instanceof Error ? error.message : "Your profile could not be loaded. Please try again." });
+      return;
+    }
     window.location.href = "/dashboard/student";
   };
 

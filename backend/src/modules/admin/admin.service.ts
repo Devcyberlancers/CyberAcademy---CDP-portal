@@ -110,7 +110,7 @@ export class AdminService {
     const course = await this.prisma.courses.findUnique({ where: { id: courseId } });
     if (!course) throw new NotFoundException('Course not found');
     const prefix = `course:${courseId}:`;
-    const [profiles, academics, settings, attempts] = await Promise.all([
+    const [profiles, academics, settings, attempts, moduleSnapshot] = await Promise.all([
       this.prisma.student_profiles.findMany({ orderBy: { full_name: 'asc' } }),
       this.prisma.students.findMany({
         include: {
@@ -126,7 +126,15 @@ export class AdminService {
         where: { assignment_id: { startsWith: prefix } },
         orderBy: { started_at: 'desc' },
       }),
+      this.prisma.admin_snapshots.findUnique({ where: { key: `course-editor-modules-${courseId}-v2` } }),
     ]);
+    let totalModules = 0;
+    try { totalModules = Array.isArray(moduleSnapshot ? JSON.parse(moduleSnapshot.payload) : []) ? JSON.parse(moduleSnapshot!.payload).length : 0; } catch { totalModules = 0; }
+    const progressSnapshots = await this.prisma.admin_snapshots.findMany({ where: { key: { startsWith: `course-progress:${courseId}:` } } });
+    const progressByEmail = new Map(progressSnapshots.map((snapshot) => {
+      try { return [snapshot.key.slice(`course-progress:${courseId}:`.length), JSON.parse(snapshot.payload) as { videos?: number[]; quizzes?: Record<string, { passed?: boolean }> }]; }
+      catch { return [snapshot.key.slice(`course-progress:${courseId}:`.length), {}]; }
+    }));
     const academicByEmail = new Map(academics.map((student) => [student.users.email.toLowerCase(), student]));
     const totalAssessments = settings.length;
     const rows = profiles.map((profile) => {
@@ -136,17 +144,27 @@ export class AdminService {
         attempt.student_email.toLowerCase() === email || Boolean(academic && attempt.student_id === academic.id));
       const completed = studentAttempts.filter((attempt) => attempt.status !== 'in_progress');
       const completedAssessments = new Set(completed.map((attempt) => attempt.assignment_id)).size;
+      const progress = progressByEmail.get(email);
+      const completedModules = totalModules
+        ? Array.from({ length: totalModules }, (_, index) => {
+          const videos = new Set(progress?.videos ?? []);
+          const quiz = progress?.quizzes?.[String(index)]?.passed ?? false;
+          return videos.has(index) && quiz;
+        }).filter(Boolean).length
+        : 0;
       return {
         student_id: profile.id,
         student_name: profile.full_name || profile.first_name || profile.email,
         student_email: profile.email,
         register_number: profile.registration_number,
         assigned: Boolean(academic?.student_course_assignments.length),
-        progress_percent: totalAssessments
-          ? Math.round((completedAssessments / totalAssessments) * 100)
+        progress_percent: totalModules
+          ? Math.round((completedModules / totalModules) * 100)
+          : totalAssessments
+            ? Math.round((completedAssessments / totalAssessments) * 100)
           : 0,
-        assessments_completed: completedAssessments,
-        total_assessments: totalAssessments,
+        assessments_completed: completedModules || completedAssessments,
+        total_assessments: totalModules || totalAssessments,
         attempts: studentAttempts.length,
         average_score: completed.length
           ? Math.round(completed.reduce((sum, attempt) => sum + attempt.score, 0) / completed.length)
@@ -193,7 +211,10 @@ export class AdminService {
     if (!course) throw new NotFoundException('Course not found');
     const published = status === 'active';
     await this.prisma.$transaction([
-      this.prisma.courses.update({ where: { id: courseId }, data: { status, updated_at: new Date() } }),
+      this.prisma.courses.update({
+        where: { id: courseId },
+        data: { status, updated_at: new Date(), start_date: published && !course.start_date ? new Date() : undefined },
+      }),
       this.prisma.assignment_security_settings.updateMany({
         where: { assignment_id: { startsWith: `course:${courseId}:` } },
         data: { published, active: published, updated_at: new Date() },
@@ -351,11 +372,20 @@ export class AdminService {
   }
 
   async jobsOverview() {
-    const [total, waiting] = await Promise.all([
+    const [total, waiting, refreshStatus] = await Promise.all([
       this.prisma.jobs.count(),
       this.prisma.applications.count({ where: { status: 'manual_review' } }),
+      this.prisma.admin_snapshots.findUnique({ where: { key: 'job-refresh-status' } }),
     ]);
-    return { section: 'jobs', summary: { total_jobs: total, published: total, candidate_waiting_approval: waiting } };
+    let latest_refresh: Record<string, unknown> | null = null;
+    if (refreshStatus) {
+      try { latest_refresh = JSON.parse(refreshStatus.payload) as Record<string, unknown>; } catch { latest_refresh = null; }
+    }
+    return {
+      section: 'jobs',
+      summary: { total_jobs: total, published: total, candidate_waiting_approval: waiting },
+      latest_refresh,
+    };
   }
 
   async applicationActivity() {
@@ -408,14 +438,40 @@ export class AdminService {
   }
 
   private async profileResponse(profile: any) {
-    const user = await this.prisma.users.findUnique({ where: { email: profile.email.toLowerCase() } });
+    const email = profile.email.toLowerCase();
+    const [user, progressRows, moduleRows] = await Promise.all([
+      this.prisma.users.findUnique({ where: { email } }),
+      this.prisma.admin_snapshots.findMany({ where: { key: { endsWith: `:${email}` } } }),
+      this.prisma.admin_snapshots.findMany({ where: { key: { startsWith: 'course-editor-modules-' } } }),
+    ]);
+    const modulesByCourse = new Map<number, Array<{ title?: string }>>();
+    for (const row of moduleRows) {
+      const match = /^course-editor-modules-(\d+)-v2$/.exec(row.key);
+      if (!match) continue;
+      try { const modules = JSON.parse(row.payload); if (Array.isArray(modules)) modulesByCourse.set(Number(match[1]), modules); } catch { /* malformed snapshot */ }
+    }
+    const courseProgress: Array<{ percent: number; currentModule?: string }> = [];
+    for (const row of progressRows) {
+      const match = /^course-progress:(\d+):/.exec(row.key);
+      if (!match) continue;
+      try {
+        const modules = modulesByCourse.get(Number(match[1])) ?? [];
+        const saved = JSON.parse(row.payload) as { videos?: number[]; quizzes?: Record<string, { passed?: boolean }> };
+        const videos = new Set(saved.videos ?? []);
+        const complete = modules.map((_, index) => videos.has(index) && Boolean(saved.quizzes?.[String(index)]?.passed));
+        const nextIndex = complete.findIndex((done) => !done);
+        courseProgress.push({ percent: modules.length ? Math.round((complete.filter(Boolean).length / modules.length) * 100) : 0, currentModule: nextIndex >= 0 ? modules[nextIndex]?.title : modules.at(-1)?.title });
+      } catch { /* malformed progress snapshot */ }
+    }
+    const progressPercent = courseProgress.length ? Math.round(courseProgress.reduce((sum, item) => sum + item.percent, 0) / courseProgress.length) : 0;
+    const currentModule = courseProgress.find((item) => item.currentModule)?.currentModule ?? profile.tag ?? null;
     const sender = this.config.get<string>('smtp.fromEmail') ?? '';
     return {
       id: profile.id, name: profile.full_name || profile.first_name || profile.email,
       email: profile.email, register_number: profile.registration_number || profile.cyberlancers_id || String(profile.id),
       phone: profile.phone || null, degree: profile.course || null, branch: profile.department || null,
       batch: profile.batch || null, status: profile.status || (!user || user.is_active ? 'active' : 'suspended'),
-      progress_percent: 0, current_module: profile.tag || null, payment_status: null,
+      progress_percent: progressPercent, current_module: currentModule, payment_status: null,
       account_status: user ? 'Account Created' : 'Not Created',
       profile_status: profile.status || 'Waiting for Student', username: profile.email,
       portal_link: `${this.config.get<string>('studentFrontendUrl')?.replace(/\/+$/, '')}/student/login`,
@@ -433,7 +489,7 @@ export class AdminService {
     const profile = await this.prisma.student_profiles.findUnique({ where: { id } });
     if (!profile) throw new NotFoundException('Student not found');
     const academic = await this.prisma.students.findFirst({ where: { users: { email: profile.email.toLowerCase() } } });
-    const [publishedCourses, assignments, settings, attempts] = await Promise.all([
+    const [publishedCourses, assignments, settings, attempts, moduleRows, progressRows] = await Promise.all([
       this.prisma.courses.findMany({
         where: { status: { in: ['active', 'published'] } },
         orderBy: { updated_at: 'desc' },
@@ -454,7 +510,26 @@ export class AdminService {
         },
         orderBy: [{ started_at: 'desc' }, { id: 'desc' }],
       }),
+      this.prisma.admin_snapshots.findMany({ where: { key: { startsWith: 'course-editor-modules-' } } }),
+      this.prisma.admin_snapshots.findMany({ where: { key: { endsWith: `:${profile.email.toLowerCase()}` } } }),
     ]);
+    const moduleCount = new Map<number, number>();
+    for (const row of moduleRows) {
+      const match = /^course-editor-modules-(\d+)-v2$/.exec(row.key);
+      if (!match) continue;
+      try { const modules = JSON.parse(row.payload); if (Array.isArray(modules)) moduleCount.set(Number(match[1]), modules.length); } catch { /* malformed snapshot */ }
+    }
+    const moduleProgress = new Map<number, number>();
+    for (const row of progressRows) {
+      const match = /^course-progress:(\d+):/.exec(row.key);
+      if (!match) continue;
+      try {
+        const saved = JSON.parse(row.payload) as { videos?: number[]; quizzes?: Record<string, { passed?: boolean }> };
+        const total = moduleCount.get(Number(match[1])) ?? 0;
+        const completed = [...new Set(saved.videos ?? [])].filter((index) => saved.quizzes?.[String(index)]?.passed).length;
+        moduleProgress.set(Number(match[1]), total ? Math.round((completed / total) * 100) : 0);
+      } catch { /* malformed progress */ }
+    }
     const demoAssessmentTitles = new Set(['TCS NQT Mock Set 4', 'Intro Module Check', 'Scanning Networks Quiz']);
     const publishedSettings = settings.filter((setting) => !demoAssessmentTitles.has(setting.assignment_title));
     const assignmentMap = new Map(assignments.map((assignment) => [assignment.course_id, assignment]));
@@ -505,7 +580,7 @@ export class AdminService {
         status: course.status,
         duration: String(metadata.duration ?? ''),
         instructor: String(metadata.instructor ?? ''),
-        progress_percent: course.progress_percent,
+        progress_percent: moduleProgress.get(course.id) ?? 0,
         assigned: Boolean(assignment),
         assigned_at: assignment?.assigned_at ?? null,
         assessment_count: courseSettings.length,

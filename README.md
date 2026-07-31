@@ -28,6 +28,24 @@ CyberAcademy/
 └── package.json                     Workspace-level start command
 ```
 
+## Quick start for a new laptop
+
+Install Node.js 22+, Docker Desktop, and Git. Then, after cloning this repository, run only:
+
+```powershell
+npm run setup
+npm run start:all
+```
+
+The first command installs all three applications, creates a local-only backend
+configuration, starts an isolated MySQL 8 container, and creates the development
+schema. The second starts the Student portal, Admin portal, and API. Open
+`http://localhost:3000` when it finishes.
+
+`npm run setup` never overwrites an existing `backend/.env.local`; contributors
+with an existing database simply get dependency installation. To check the code
+before a pull request, run `npm run verify`.
+
 ## Prerequisites
 
 Install:
@@ -258,7 +276,9 @@ GitHub Actions performs these checks automatically on pushes and pull requests.
 
 ## Hostinger production deployment
 
-The complete application requires a Hostinger VPS with Docker. Ordinary shared hosting or a frontend-only hosting plan is insufficient because the project requires MySQL, the NestJS API, Playwright, scheduled jobs, and two Next.js servers.
+Hostinger Cloud supports the Student portal, Admin portal, and NestJS API as managed Node.js Web Apps. Deploy them as three separate apps with their own domains and environment variables; do not use the Docker Compose configuration on a Cloud plan. Follow [HOSTINGER_CLOUD_DEPLOYMENT.md](HOSTINGER_CLOUD_DEPLOYMENT.md).
+
+The Docker Compose procedure below is for a Hostinger VPS only. It remains the deployment option when Playwright's Chromium runtime or other server-level dependencies cannot run in the managed Cloud environment.
 
 Recommended starting VPS:
 

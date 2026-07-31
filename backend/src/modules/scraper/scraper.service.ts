@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { chromium, BrowserContext, Locator } from 'playwright';
 import { PrismaService } from '../../prisma/prisma.service';
+import { resolve } from 'node:path';
 
 const KEYWORDS = ['Cyber Security Fresher', 'SOC Analyst Fresher', 'Junior Security Engineer'];
 const CONFIG: Record<string, any> = {
@@ -30,9 +31,26 @@ const CONFIG: Record<string, any> = {
 @Injectable()
 export class ScraperService {
   private readonly logger = new Logger(ScraperService.name);
-  private lastGlobal = 0;
   private running = false;
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {
+    // The setup command keeps Chromium here, so the refresh worker does not
+    // depend on a developer's or host's global Playwright cache.
+    process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve(process.cwd(), '.playwright');
+  }
+
+  private async refreshStatus() {
+    const row = await this.prisma.admin_snapshots.findUnique({ where: { key: 'job-refresh-status' } });
+    if (!row) return {} as Record<string, unknown>;
+    try { return JSON.parse(row.payload) as Record<string, unknown>; } catch { return {}; }
+  }
+
+  private async saveRefreshStatus(status: Record<string, unknown>) {
+    await this.prisma.admin_snapshots.upsert({
+      where: { key: 'job-refresh-status' },
+      create: { key: 'job-refresh-status', payload: JSON.stringify(status), updated_by: 'scheduler', updated_at: new Date() },
+      update: { payload: JSON.stringify(status), updated_by: 'scheduler', updated_at: new Date() },
+    });
+  }
 
   private async text(card: Locator, selectors: string[]) {
     for (const selector of selectors) try {
@@ -116,7 +134,10 @@ export class ScraperService {
     }
   }
 
-  @Cron('*/1 * * * *')
+  // Poll lightly for student-selected times, while the shared catalogue is
+  // refreshed once per IST calendar day. Status is persisted so a restart
+  // cannot cause a burst of repeat refreshes or hide the last run from admin.
+  @Cron('*/5 * * * *')
   async scheduledRefresh() {
     const now = new Date();
     const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
@@ -125,10 +146,30 @@ export class ScraperService {
     const due = await this.prisma.student_job_search_preferences.findMany({
       where: { active: true, search_time_ist: { lte: time }, OR: [{ last_run_on: null }, { last_run_on: { not: today } }] },
     });
-    if (!due.length && Date.now() - this.lastGlobal < 30 * 60_000) return;
+    const status = await this.refreshStatus();
+    const globalDue = ist.getHours() >= 8 && status.last_global_run_on !== today;
+    if (!due.length && !globalDue) return;
+
+    const startedAt = new Date().toISOString();
     const result = await this.refresh();
-    this.lastGlobal = Date.now();
-    if (due.length) await this.prisma.student_job_search_preferences.updateMany({ where: { id: { in: due.map((row) => row.id) } }, data: { last_run_on: today } });
-    this.logger.log(`Scheduled job refresh stored ${result.stored} jobs`);
+    const failed = Boolean(result.errors.playwright || result.errors.scheduler);
+    const completedAt = new Date().toISOString();
+    if (!failed && due.length) {
+      await this.prisma.student_job_search_preferences.updateMany({
+        where: { id: { in: due.map((row) => row.id) } }, data: { last_run_on: today },
+      });
+    }
+    await this.saveRefreshStatus({
+      ...status,
+      started_at: startedAt,
+      completed_at: completedAt,
+      status: failed ? 'failed' : 'completed',
+      stored: result.stored,
+      errors: result.errors,
+      due_student_preferences: due.length,
+      ...(globalDue && !failed ? { last_global_run_on: today } : {}),
+    });
+    if (failed) this.logger.error(`Scheduled job refresh failed: ${JSON.stringify(result.errors)}`);
+    else this.logger.log(`Scheduled job refresh stored ${result.stored} jobs`);
   }
 }

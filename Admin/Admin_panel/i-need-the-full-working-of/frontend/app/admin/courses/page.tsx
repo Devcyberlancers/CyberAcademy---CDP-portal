@@ -34,6 +34,21 @@ export default function CoursesPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!studentReport) return;
+    let active = true;
+    const refresh = async () => {
+      try {
+        const report = await getCourseStudentProgress(studentReport.course.id);
+        if (active) setStudentReport({ course: report.course, students: report.students });
+      } catch {
+        // Preserve the last usable report if the API is briefly unavailable.
+      }
+    };
+    const timer = window.setInterval(() => void refresh(), 15_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [studentReport?.course.id]);
+
   const filteredCourses = useMemo(() => {
     const clean = query.trim().toLowerCase();
     if (!clean) return catalog;

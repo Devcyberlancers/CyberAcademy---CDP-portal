@@ -54,6 +54,17 @@ export class JobSearchPreferenceDto {
   active = true;
 }
 
+export class ModuleVideoCompletionDto {
+  @Transform(({ value }) => Number(value))
+  module_index!: number;
+}
+
+export class ModuleQuizSubmissionDto {
+  @Transform(({ value }) => Number(value))
+  module_index!: number;
+  answers!: Record<string, string>;
+}
+
 export class JobQueryDto {
   @IsOptional()
   @Transform(({ value }) => Number(value))

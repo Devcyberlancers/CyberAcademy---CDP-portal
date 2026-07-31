@@ -45,7 +45,7 @@ model admin_password_resets {
 model admin_snapshots {
   id         Int      @id @default(autoincrement())
   key        String   @unique(map: "ix_admin_snapshots_key") @db.VarChar(180)
-  payload    String   @db.Text
+  payload    String   @db.MediumText
   updated_by String?  @db.VarChar(255)
   updated_at DateTime @default(dbgenerated("(now())")) @db.DateTime(0)
 

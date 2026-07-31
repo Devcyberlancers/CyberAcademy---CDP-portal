@@ -334,6 +334,8 @@ export function StudentPortal() {
   const [pendingApplications, setPendingApplications] = useState<JobApplicationRecord[]>([]);
   const [searchResults, setSearchResults] = useState<Array<{ key: string; label: string; detail: string; section: StudentSection }>>([]);
   const [searchComplete, setSearchComplete] = useState(false);
+  const [sessionReady, setSessionReady] = useState(false);
+  const [sessionError, setSessionError] = useState("");
   const activeSearch = searchValue.trim();
 
   useEffect(() => {
@@ -345,12 +347,21 @@ export function StudentPortal() {
       window.setTimeout(() => void submitSearchValue(requestedSearch), 0);
     }
     const localStudent = readStudentAccount();
-    setStudent(localStudent);
-    if (localStudent.email) {
-      void fetchStudentProfile(localStudent.email).then((profile) => {
-        if (profile) setStudent(profile);
-      });
+    const token = window.localStorage.getItem("cyber-academy-auth-token");
+    if (!token || !localStudent.email) {
+      window.location.replace("/?error=session-required");
+      return;
     }
+    setStudent(localStudent);
+    void fetchStudentProfile(localStudent.email)
+      .then((profile) => {
+        if (profile) setStudent(profile);
+        setSessionReady(true);
+      })
+      .catch((error) => {
+        setSessionError(error instanceof Error ? error.message : "Your dashboard data could not be loaded.");
+        setSessionReady(true);
+      });
   }, []);
 
   useEffect(() => {
@@ -377,7 +388,7 @@ export function StudentPortal() {
     if (!term) { setSearchResults([]); setSearchComplete(false); return; }
     try {
       const [courseResponse, jobResponse] = await Promise.all([
-        fetch(new URL("/api/courses", apiBaseUrl).toString(), { cache: "no-store" }),
+        fetch(new URL("/api/courses", apiBaseUrl).toString(), { cache: "no-store", headers: (() => { const token = window.localStorage.getItem("cyber-academy-auth-token"); return token ? { Authorization: `Bearer ${token}` } : undefined; })() }),
         fetch(new URL("/api/jobs/entry-level?limit=500", apiBaseUrl).toString(), { cache: "no-store" })
       ]);
       const courses = courseResponse.ok ? await courseResponse.json() as Array<Record<string, unknown>> : [];
@@ -393,6 +404,14 @@ export function StudentPortal() {
     } finally {
       setSearchComplete(true);
     }
+  }
+
+  if (!sessionReady) {
+    return <div className="grid min-h-screen place-items-center bg-[#f6f8fc] text-sm font-semibold text-[#07142f]">Loading your student dashboard…</div>;
+  }
+
+  if (sessionError) {
+    return <div className="grid min-h-screen place-items-center bg-[#f6f8fc] px-5 text-center text-[#07142f]"><div className="max-w-md rounded-xl bg-white p-7 shadow-sm"><h1 className="text-xl font-bold">Dashboard unavailable</h1><p className="mt-3 text-sm text-[#5a6170]">{sessionError}</p><button type="button" onClick={() => window.location.reload()} className="mt-6 rounded-md bg-[#3155ff] px-5 py-3 text-sm font-semibold text-white">Try again</button></div></div>;
   }
 
   return (
@@ -627,20 +646,22 @@ function CourseDashboardView({ student, onSectionChange }: { student: StudentAcc
   const [selectedCourses, setSelectedCourses] = useState<Set<string>>(new Set());
   const [refreshedAt, setRefreshedAt] = useState(new Date());
   useEffect(() => {
+    let active = true;
     const token = window.localStorage.getItem("cyber-academy-auth-token");
     const headers: Record<string, string> = {};
     if (token) headers.Authorization = `Bearer ${token}`;
-    void Promise.all([
-      fetch(new URL("/api/courses", apiBaseUrl).toString(), { cache: "no-store" }),
+    const load = () => void Promise.all([
+      fetch(new URL("/api/courses", apiBaseUrl).toString(), { cache: "no-store", headers }),
       fetch(new URL("/api/student/statistics", apiBaseUrl).toString(), { cache: "no-store", headers })
     ]).then(async ([courseResponse, statisticsResponse]) => {
+      if (!active) return;
       setDatabaseCourses(courseResponse.ok ? (await courseResponse.json() as ApiCourse[]).map(apiCourseToPortalCourse) : []);
       setStatistics(statisticsResponse.ok ? await statisticsResponse.json() as StudentStatistics : emptyStudentStatistics);
       setRefreshedAt(new Date());
-    }).catch(() => {
-      setDatabaseCourses([]);
-      setStatistics(emptyStudentStatistics);
-    });
+    }).catch(() => { if (active) { setDatabaseCourses([]); setStatistics(emptyStudentStatistics); } });
+    load();
+    const interval = window.setInterval(load, 30_000);
+    return () => { active = false; window.clearInterval(interval); };
   }, []);
   const visibleCourses = databaseCourses.filter((course) => {
     const matchesSearch = course.title.toLowerCase().includes(courseSearch.trim().toLowerCase());
@@ -1121,6 +1142,8 @@ type ApiCourse = {
   progress_percent?: number;
   assessments?: number;
   labs?: number;
+  quizzes?: number;
+  modules_count?: number;
   start_date?: string | null;
   end_date?: string | null;
   icon?: string;
@@ -1160,8 +1183,8 @@ function apiCourseToPortalCourse(course: ApiCourse): PortalCourse {
     description: course.heading || "",
     icon: ShieldCheck,
     color: course.color?.startsWith("bg-") ? course.color : "bg-[#3155ff]",
-    assessments: Number(course.assessments ?? 0),
-    labs: Number(course.labs ?? 0),
+    assessments: Number(course.quizzes ?? course.assessments ?? 0),
+    labs: Number(course.modules_count ?? course.labs ?? 0),
     progress,
     start: course.level || course.category || "Course",
     end: statusOverride,
@@ -1185,10 +1208,7 @@ function courseStatus(course: PortalCourse): Exclude<CourseStatus, "all"> {
 }
 
 function courseDates(course: PortalCourse) {
-  if (course.startDate || course.endDate) {
-    return { startDate: course.startDate || "--", endDate: course.endDate || "--" };
-  }
-  return { startDate: "--", endDate: "--" };
+  return { startDate: course.startDate || "", endDate: course.endDate || "" };
 }
 
 function CoursesView({ searchTerm }: { searchTerm: string }) {
@@ -1202,7 +1222,8 @@ function CoursesView({ searchTerm }: { searchTerm: string }) {
 
   useEffect(() => {
     let alive = true;
-    fetch(new URL("/api/courses", apiBaseUrl).toString(), { cache: "no-store" })
+    const token = window.localStorage.getItem("cyber-academy-auth-token");
+    fetch(new URL("/api/courses", apiBaseUrl).toString(), { cache: "no-store", headers: token ? { Authorization: `Bearer ${token}` } : {} })
       .then((response) => {
         if (!response.ok) throw new Error("Courses unavailable");
         return response.json() as Promise<ApiCourse[]>;
@@ -1346,8 +1367,8 @@ function CourseCard({
         <span>{progress}%</span>
       </div>
       <div className="mt-7 grid grid-cols-2 gap-4 text-sm">
-        <CourseStat value={course.assessments} label="Assessment" />
-        <CourseStat value={course.labs || "--"} label="Practice Test" />
+        <CourseStat value={course.assessments} label="Quiz" />
+        <CourseStat value={course.labs || "--"} label="Modules" />
         <CourseStat value={dates.startDate} label="Start Date" icon="calendar" />
         <CourseStat value={dates.endDate} label="End Date" icon="calendar" />
       </div>
@@ -1382,9 +1403,6 @@ function CourseDetailPanel({ course, onClose }: { course: PortalCourse; onClose:
             </div>
           </div>
           <button type="button" onClick={onClose} className="rounded-lg border border-[#dbe0e9] px-3 py-2 text-sm text-[#5f6573]">Close</button>
-        </div>
-        <div className="mt-6 h-2 rounded-full bg-[#d6d6d6]">
-          <div className="h-full rounded-full bg-[#3155ff]" style={{ width: `${progress}%` }} />
         </div>
         <div className="mt-5 grid gap-3 sm:grid-cols-4">
           <MiniCourseInfo label="Progress" value={`${progress}%`} />
@@ -1969,9 +1987,9 @@ function JobDashboardView({ headerSearch, student, onSectionChange }: { headerSe
         <span className="absolute -bottom-7 right-12 text-[84px] font-medium text-white/15">Hello {student.firstName || "Student"}</span>
       </section>
       <div className="relative z-10 -mt-8 mb-7 grid gap-4 lg:grid-cols-5 lg:px-7">
-        <JobSummaryMetric value={filteredJobs.length} label="Eligible" tone="blue" />
+        <JobSummaryMetric value={jobs.length} label="Available jobs" tone="blue" />
         <JobSummaryMetric value={appliedCount} label="Applied" tone="indigo" />
-        <JobSummaryMetric value={0} label="Placed" tone="green" />
+        <JobSummaryMetric value={appliedHistory.length} label="Confirmed applications" tone="green" />
         <JobSummaryMetric value={waitingCount} label="Waiting" tone="orange" />
         <JobSummaryMetric value={notAppliedCount} label="Not Applied" tone="red" />
       </div>
@@ -2037,7 +2055,7 @@ function JobDashboardView({ headerSearch, student, onSectionChange }: { headerSe
         <div className="mt-7 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
           <JobInsightPanel title="Best Performing Jobs" jobs={[...appliedJobs].sort((a, b) => b.match_score - a.match_score)} emptyText="No applied jobs yet" />
           <JobInsightPanel title="Least Performing Jobs" jobs={waitingJobs} emptyText="No waiting results" />
-          <JobInsightPanel title="Not Eligible Jobs" jobs={[]} emptyText="All displayed jobs are eligible" />
+          <JobInsightPanel title="Latest opportunities" jobs={[...jobs].sort(compareJobsNewestFirst)} emptyText="No current opportunities" />
           <JobInsightPanel title="Eligible not Opted in Jobs" jobs={notAppliedJobs} emptyText="No pending opportunities" />
         </div>
 
@@ -2252,7 +2270,6 @@ function JobsView({ headerSearch }: { headerSearch: string }) {
 
   const appliedCount = jobs.filter((job) => job.id && (applicationStatuses[String(job.id)]?.status || statusForJob(job.id)) === "applied").length;
   const waitingCount = jobs.filter((job) => job.id && (applicationStatuses[String(job.id)]?.status || statusForJob(job.id)) === "pending").length;
-  const rejectedCount = jobs.filter((job) => job.id && (applicationStatuses[String(job.id)]?.status || statusForJob(job.id)) === "not_applied").length;
   const visibleRecentJobs = showAllRecent ? recentJobs : recentJobs.slice(0, 5);
 
   return (
@@ -2331,7 +2348,6 @@ function JobsView({ headerSearch }: { headerSearch: string }) {
             <SummaryRow label="No. of Jobs" value={jobs.length} />
             <SummaryRow label="Placed" value={0} />
             <SummaryRow label="Waiting" value={waitingCount} />
-            <SummaryRow label="Rejected" value={rejectedCount || Math.max(0, jobs.length - appliedCount - waitingCount)} />
           </div>
 
           <div className="mt-10">
@@ -2447,7 +2463,7 @@ function JobInsightPanel({ title, jobs, emptyText }: { title: string; jobs: Exte
 
 function RoundWiseJobStatus({ applied, waiting, notApplied }: { applied: number; waiting: number; notApplied: number }) {
   const total = Math.max(1, applied + waiting + notApplied);
-  const items = [{ label: "Applied", value: applied, color: "bg-[#4eb34e]" }, { label: "Wait listed", value: waiting, color: "bg-[#ffad36]" }, { label: "Not Selected", value: notApplied, color: "bg-[#e71919]" }];
+  const items = [{ label: "Applied", value: applied, color: "bg-[#4eb34e]" }, { label: "Waiting", value: waiting, color: "bg-[#ffad36]" }, { label: "Not Applied", value: notApplied, color: "bg-[#e71919]" }];
   return <Card className="min-h-[500px] rounded-[22px] border-0 bg-white p-8 shadow-[0_8px_24px_rgba(17,24,74,.04)]"><div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#edf0f5] pb-6"><h2 className="text-xl font-semibold">Round Wise Status</h2><div className="flex gap-4 text-sm">{items.map((item) => <span key={item.label} className="flex items-center gap-2"><i className={`h-4 w-4 rounded-full ${item.color}`} />{item.label}</span>)}</div></div><div className="mt-12 grid h-72 grid-cols-3 items-end gap-8 px-8">{items.map((item) => <div key={item.label} className="text-center"><strong className="mb-2 block text-xl">{item.value}</strong><div className={`mx-auto w-20 rounded-t-lg ${item.color}`} style={{ height: `${Math.max(12, item.value / total * 220)}px` }} /><span className="mt-3 block text-xs text-[#747b8a]">{item.label}</span></div>)}</div></Card>;
 }
 

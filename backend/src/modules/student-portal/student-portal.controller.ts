@@ -1,10 +1,10 @@
 import {
-  Body, Controller, Get, Param, ParseIntPipe, Post, Put, Query, UseGuards,
+  Body, Controller, ForbiddenException, Get, Param, ParseIntPipe, Post, Put, Query, UseGuards,
 } from '@nestjs/common';
 import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import {
-  ApplicationStatusDto, JobSearchPreferenceDto, StudentProfileDto,
+  ApplicationStatusDto, JobSearchPreferenceDto, ModuleQuizSubmissionDto, ModuleVideoCompletionDto, StudentProfileDto,
 } from './dto/student-portal.dto';
 import { StudentPortalService } from './student-portal.service';
 import { ScraperService } from '../scraper/scraper.service';
@@ -40,10 +40,44 @@ export class StudentPortalController {
   }
   @Get('jobs/:id') job(@Param('id', ParseIntPipe) id: number) { return this.service.job(id); }
 
-  @Get('student-profile') profile(@Query('email') email: string) { return this.service.getProfile(email); }
-  @Put('student-profile') saveProfile(@Body() dto: StudentProfileDto) { return this.service.saveProfile(dto); }
-  @Get('courses') courses(@Query('status') status = 'active') { return this.service.courses(status); }
-  @Get('courses/:id/content') content(@Param('id', ParseIntPipe) id: number) { return this.service.courseContent(id); }
+  @Get('student-profile')
+  @UseGuards(JwtAuthGuard)
+  profile(@CurrentUser() user: AuthenticatedUser) {
+    this.requireStudent(user);
+    return this.service.getProfile(user.sub);
+  }
+
+  @Put('student-profile')
+  @UseGuards(JwtAuthGuard)
+  saveProfile(@CurrentUser() user: AuthenticatedUser, @Body() dto: StudentProfileDto) {
+    this.requireStudent(user);
+    // The account in the JWT is authoritative; a client cannot save another student's profile.
+    return this.service.saveProfile({ ...dto, email: user.sub });
+  }
+  @Get('courses')
+  @UseGuards(JwtAuthGuard)
+  courses(@Query('status') status = 'active', @CurrentUser() user: AuthenticatedUser) {
+    this.requireStudent(user);
+    return this.service.courses(status, user.sub);
+  }
+  @Get('courses/:id/content')
+  @UseGuards(JwtAuthGuard)
+  content(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthenticatedUser) {
+    this.requireStudent(user);
+    return this.service.courseContent(id, user.sub);
+  }
+  @Put('courses/:id/modules/video-complete')
+  @UseGuards(JwtAuthGuard)
+  completeModuleVideo(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthenticatedUser, @Body() dto: ModuleVideoCompletionDto) {
+    this.requireStudent(user);
+    return this.service.completeModuleVideo(id, user.sub, dto.module_index);
+  }
+  @Put('courses/:id/modules/quiz-submit')
+  @UseGuards(JwtAuthGuard)
+  submitModuleQuiz(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthenticatedUser, @Body() dto: ModuleQuizSubmissionDto) {
+    this.requireStudent(user);
+    return this.service.submitModuleQuiz(id, user.sub, dto.module_index, dto.answers ?? {});
+  }
   @Get('announcements') announcements() { return this.service.announcements(); }
 
   @Get('student/statistics')
@@ -75,5 +109,9 @@ export class StudentPortalController {
   @UseGuards(JwtAuthGuard)
   savePreference(@CurrentUser() user: AuthenticatedUser, @Body() dto: JobSearchPreferenceDto) {
     return this.service.savePreference(user.sub, dto);
+  }
+
+  private requireStudent(user: AuthenticatedUser) {
+    if (user.role !== 'student') throw new ForbiddenException('Student permission required');
   }
 }

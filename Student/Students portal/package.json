@@ -6,7 +6,7 @@
     "clean:next": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/clean-next.ps1",
     "dev": "npm run clean:next && next dev frontend",
     "dev:clean": "npm run clean:next && next dev frontend",
-    "dev:frontend": "next dev frontend",
+    "dev:frontend": "npm run clean:next && next dev frontend",
     "dev:all": "npm --prefix ../../backend run start:all",
     "start:all": "npm --prefix ../../backend run start:all",
     "build": "npm run clean:next && next build frontend",

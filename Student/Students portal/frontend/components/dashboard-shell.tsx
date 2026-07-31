@@ -107,6 +107,11 @@ export function DashboardShell({
         }
         setPortalAccess(await response.json());
         setAccessError("");
+      } catch {
+        // Network errors (for example while the API is restarting) must not
+        // surface as an unhandled React runtime error or erase the last valid
+        // access state.
+        setAccessError("Portal access is temporarily unavailable. Retrying automatically...");
       } finally {
         setAccessLoaded(true);
       }

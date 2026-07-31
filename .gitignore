@@ -3,14 +3,20 @@
 
 # Next.js and Node build output
 **/.next/
+**/.next-dev/
 **/out/
 **/dist/
 **/coverage/
 **/.playwright/
+**/playwright-report/
+**/test-results/
+**/.cache/
+**/.turbo/
 **/*.tsbuildinfo
 
 # Local environment and secrets
 **/.env
+**/.env.*
 **/.env.local
 **/.env.production
 **/.env.development.local

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
@@ -215,7 +215,10 @@ export class StudentPortalService {
         update: { ...dto, email, first_name: firstName, status, updated_at: new Date() },
       });
       const user = await tx.users.findUnique({ where: { email }, include: { students: true } });
-      const student = user?.students[0];
+      const profileUsn = (dto.registration_number || dto.cyberlancers_id).trim().slice(0, 40);
+      // Historical imports can leave more than one academic row for a user. Select
+      // the row already linked to this profile's registration number, not an arbitrary row.
+      const student = user?.students.find((candidate) => candidate.usn === profileUsn) ?? user?.students[0];
       if (student) {
         let departmentId = student.department_id;
         if (dto.department) {
@@ -229,12 +232,17 @@ export class StudentPortalService {
           });
           departmentId = department.id;
         }
+        const nextUsn = profileUsn || student.usn;
+        const usnOwner = await tx.students.findUnique({ where: { usn: nextUsn }, select: { id: true } });
+        if (usnOwner && usnOwner.id !== student.id) {
+          throw new ConflictException('Registration number is already linked to another student account.');
+        }
         await tx.students.update({
           where: { id: student.id },
           data: {
             department_id: departmentId,
             full_name: dto.full_name || student.full_name,
-            usn: (dto.registration_number || dto.cyberlancers_id || student.usn).slice(0, 40),
+            usn: nextUsn,
             resume_url: dto.resume_url || student.resume_url,
             skills: dto.tag || student.skills,
           },
@@ -245,8 +253,8 @@ export class StudentPortalService {
     return this.profileOut(profile);
   }
 
-  courses(status = 'active') {
-    return this.prisma.courses.findMany({
+  async courses(status = 'active', email?: string) {
+    const rows = await this.prisma.courses.findMany({
       where: status ? { status } : {},
       orderBy: { updated_at: 'desc' },
       select: {
@@ -254,7 +262,43 @@ export class StudentPortalService {
         progress_percent: true, assessments: true, labs: true, start_date: true, end_date: true,
         icon: true, color: true, metadata_json: true, updated_at: true,
       },
-    }).then((rows) => rows.map(({ metadata_json, ...row }) => ({ ...row, metadata: metadata_json ?? {} })));
+    });
+    if (!email) return rows.map(({ metadata_json, ...row }) => ({ ...row, metadata: metadata_json ?? {} }));
+    const [moduleSnapshots, progressSnapshots] = await Promise.all([
+      this.prisma.admin_snapshots.findMany({ where: { key: { startsWith: 'course-editor-modules-' } } }),
+      this.prisma.admin_snapshots.findMany({ where: { key: { endsWith: `:${email.toLowerCase()}` }, } }),
+    ]);
+    const moduleCount = new Map<number, number>();
+    const quizCount = new Map<number, number>();
+    for (const snapshot of moduleSnapshots) {
+      const match = /^course-editor-modules-(\d+)-v2$/.exec(snapshot.key);
+      if (!match) continue;
+      try {
+        const modules = JSON.parse(snapshot.payload);
+        if (!Array.isArray(modules)) continue;
+        moduleCount.set(Number(match[1]), modules.length);
+        quizCount.set(Number(match[1]), modules.filter((module: any) => Array.isArray(module?.generatedQuestions) && module.generatedQuestions.length > 0).length);
+      } catch { /* ignore malformed draft */ }
+    }
+    const completedCount = new Map<number, number>();
+    for (const snapshot of progressSnapshots) {
+      const match = /^course-progress:(\d+):/.exec(snapshot.key);
+      if (!match) continue;
+      try {
+        const progress = JSON.parse(snapshot.payload) as { videos?: number[]; quizzes?: Record<string, { passed?: boolean }> };
+        const videos = new Set(progress.videos ?? []);
+        const completed = [...videos].filter((index) => progress.quizzes?.[String(index)]?.passed).length;
+        completedCount.set(Number(match[1]), completed);
+      } catch { /* ignore malformed progress */ }
+    }
+    return rows.map(({ metadata_json, ...row }) => {
+      const total = moduleCount.get(row.id) ?? 0;
+      const completed = completedCount.get(row.id) ?? 0;
+      return {
+        ...row, metadata: metadata_json ?? {}, progress_percent: total ? Math.round((completed / total) * 100) : 0,
+        modules_count: total, quizzes: quizCount.get(row.id) ?? 0,
+      };
+    });
   }
 
   private async snapshot(key: string, fallback: unknown) {
@@ -263,26 +307,79 @@ export class StudentPortalService {
     try { return JSON.parse(row.payload); } catch { return fallback; }
   }
 
-  async courseContent(courseId: number) {
+  private moduleQuizId(courseId: number, index: number, title: string) {
+    const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'module';
+    return `course:${courseId}:module-${index + 1}-${slug}`;
+  }
+
+  async completeModuleVideo(courseId: number, email: string, moduleIndex: number) {
+    if (!Number.isInteger(moduleIndex) || moduleIndex < 0 || moduleIndex > 500) throw new BadRequestException('Invalid module index');
+    const key = `course-progress:${courseId}:${email.toLowerCase()}`;
+    const current = await this.snapshot(key, {}) as { videos?: number[] };
+    const videos = new Set(Array.isArray(current.videos) ? current.videos : []);
+    videos.add(moduleIndex);
+    await this.prisma.admin_snapshots.upsert({
+      where: { key }, create: { key, payload: JSON.stringify({ videos: [...videos] }), updated_by: email, updated_at: new Date() },
+      update: { payload: JSON.stringify({ videos: [...videos] }), updated_by: email, updated_at: new Date() },
+    });
+    return { completed: true, module_index: moduleIndex };
+  }
+
+  async submitModuleQuiz(courseId: number, email: string, moduleIndex: number, answers: Record<string, string>) {
+    const modules = await this.snapshot(`course-editor-modules-${courseId}-v2`, []) as Array<Record<string, any>>;
+    const module = modules[moduleIndex];
+    if (!module || !Array.isArray(module.generatedQuestions) || !module.generatedQuestions.length) {
+      throw new NotFoundException('Module quiz not found');
+    }
+    const questions = module.generatedQuestions;
+    const correct = questions.filter((question, index) => String(answers[String(index)] ?? '').trim() === String(question.answer ?? '').trim()).length;
+    const score = Math.round((correct / questions.length) * 100);
+    const key = `course-progress:${courseId}:${email.toLowerCase()}`;
+    const current = await this.snapshot(key, {}) as { videos?: number[]; quizzes?: Record<string, { score: number; passed: boolean; submitted_at: string }> };
+    const quizzes = { ...(current.quizzes ?? {}), [String(moduleIndex)]: { score, passed: score >= 60, submitted_at: new Date().toISOString() } };
+    await this.prisma.admin_snapshots.upsert({
+      where: { key }, create: { key, payload: JSON.stringify({ videos: current.videos ?? [], quizzes }), updated_by: email, updated_at: new Date() },
+      update: { payload: JSON.stringify({ videos: current.videos ?? [], quizzes }), updated_by: email, updated_at: new Date() },
+    });
+    return { submitted: true, score, passed: score >= 60, required_score: 60 };
+  }
+
+  async courseContent(courseId: number, email: string) {
     const course = await this.prisma.courses.findUnique({ where: { id: courseId } });
     if (!course || !['active', 'published'].includes(course.status)) {
       throw new NotFoundException('Published course not found');
     }
-    const [modules, banner, assessments] = await Promise.all([
+    const [modules, banner, assessments, progress] = await Promise.all([
       this.snapshot(`course-editor-modules-${courseId}-v2`, []),
       this.snapshot(`course-editor-banner-${courseId}-v1`, {}),
       this.prisma.assignment_security_settings.findMany({
         where: { assignment_id: { startsWith: `course:${courseId}:` }, published: true, active: true },
         orderBy: { created_at: 'asc' },
       }),
+      this.snapshot(`course-progress:${courseId}:${email.toLowerCase()}`, {}),
     ]);
+    const moduleList = Array.isArray(modules) ? modules as Array<Record<string, any>> : [];
+    const watched = new Set(Array.isArray((progress as any)?.videos) ? (progress as any).videos : []);
+    let previousComplete = true;
+    const studentModules = moduleList.map((module, index) => {
+      const questions = Array.isArray(module.generatedQuestions) ? module.generatedQuestions : [];
+      const videoCompleted = watched.has(index) || (!module.videoUrl && !module.uploadedVideoUrl);
+      const quizPassed = !questions.length || Boolean((progress as any)?.quizzes?.[String(index)]?.passed);
+      const accessible = index === 0 || previousComplete;
+      const required = module.unlockRule === 'manual' ? true : module.unlockRule === 'video' ? videoCompleted : videoCompleted && quizPassed;
+      previousComplete = accessible && required;
+      const publicQuestions = questions.map((question: any) => ({ question: question.question, options: question.options }));
+      return { ...module, generatedQuestions: publicQuestions, locked: !accessible, accessible, completed: required, videoCompleted, quizPassed };
+    });
     return {
       course: {
         id: course.id, title: course.title, heading: course.heading, category: course.category,
         level: course.level, status: course.status, metadata: course.metadata_json ?? {}, banner,
       },
-      modules: Array.isArray(modules) ? modules : [],
-      assessments: assessments.map((item) => ({
+      // A learner must always be able to start a published course.  This also
+      // repairs old course snapshots that marked every module as locked.
+      modules: studentModules,
+      assessments: assessments.filter((item) => !item.assignment_id.includes(':module-')).map((item) => ({
         assignmentId: item.assignment_id,
         title: item.assignment_title,
         durationMinutes: item.duration_minutes,

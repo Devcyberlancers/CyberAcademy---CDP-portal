@@ -3,6 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "start:all": "npm --prefix backend run start:all"
+    "start:all": "npm --prefix backend run start:all",
+    "setup": "node scripts/setup-local.mjs",
+    "verify": "npm --prefix backend run typecheck && npm --prefix backend run test -- --runInBand && npm --prefix \"Student/Students portal\" run typecheck && npm --prefix \"Admin/Admin_panel/i-need-the-full-working-of/frontend\" run typecheck",
+    "hostinger:build:api": "npm --prefix backend ci && npm --prefix backend run playwright:install && npm --prefix backend run deploy:build",
+    "hostinger:start:api": "npm --prefix backend run start:production",
+    "hostinger:build:student": "npm --prefix \"Student/Students portal\" ci && npm --prefix \"Student/Students portal\" run build",
+    "hostinger:start:student": "npm --prefix \"Student/Students portal\" run start",
+    "hostinger:build:admin": "npm --prefix \"Admin/Admin_panel/i-need-the-full-working-of/frontend\" ci && npm --prefix \"Admin/Admin_panel/i-need-the-full-working-of/frontend\" run build",
+    "hostinger:start:admin": "npm --prefix \"Admin/Admin_panel/i-need-the-full-working-of/frontend\" run start"
   }
 }

@@ -3,10 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3001",
+    "clean:next": "node scripts/clean-next.mjs",
+    "dev": "npm run clean:next && next dev -p 3001",
     "start:all": "npm --prefix ../../../../backend run start:all",
     "build": "next build",
-    "start": "next start -p 3001",
+    "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
