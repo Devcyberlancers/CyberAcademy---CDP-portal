@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Camera, Check, ChevronLeft, Edit3, FileText, IdCard, Trash2, Upload, UserRound } from "lucide-react";
 import { DashboardShell, type StudentSection } from "@/components/dashboard-shell";
 import { Card } from "@/components/ui";
@@ -64,12 +64,14 @@ function ProfileView({ student, onStudentChange }: { student: StudentAccount; on
   const [saveError, setSaveError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [photoSource, setPhotoSource] = useState("");
-  const [photoZoom, setPhotoZoom] = useState(1);
+  const [photoCrop, setPhotoCrop] = useState({ x: 0, y: 0 });
+  const [isEditingPhoto, setIsEditingPhoto] = useState(false);
 
   useEffect(() => {
     setDraft(student);
     setPhotoSource(student.photoDataUrl || "");
-    setPhotoZoom(1);
+    setPhotoCrop({ x: 0, y: 0 });
+    setIsEditingPhoto(false);
   }, [student]);
 
   function setField(field: keyof StudentAccount, value: string) {
@@ -106,9 +108,10 @@ function ProfileView({ student, onStudentChange }: { student: StudentAccount; on
     }
     try {
       const source = await readFileAsDataUrl(file);
-      const photoDataUrl = await prepareProfilePhoto(source, 1);
+      const photoDataUrl = await prepareProfilePhoto(source, 0, 0);
       setPhotoSource(source);
-      setPhotoZoom(1);
+      setPhotoCrop({ x: 0, y: 0 });
+      setIsEditingPhoto(true);
       setDraft((current) => ({ ...current, photoDataUrl }));
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : "The selected photo could not be processed.");
@@ -135,7 +138,7 @@ function ProfileView({ student, onStudentChange }: { student: StudentAccount; on
     if (!photoSource) return;
     try {
       setDraft((current) => ({ ...current, photoDataUrl: current.photoDataUrl }));
-      const photoDataUrl = await prepareProfilePhoto(photoSource, photoZoom);
+      const photoDataUrl = await prepareProfilePhoto(photoSource, photoCrop.x, photoCrop.y);
       setDraft((current) => ({ ...current, photoDataUrl }));
       setSaved(false);
     } catch (error) {
@@ -202,7 +205,7 @@ function ProfileView({ student, onStudentChange }: { student: StudentAccount; on
                 <Camera size={17} />
               </span>
             </label>
-            {photoSource && <div className="mx-auto mt-4 max-w-[230px] text-left"><div className="flex items-center justify-between text-xs font-semibold text-[#5a5f68]"><span>Photo adjustment</span><span>{Math.round(photoZoom * 100)}%</span></div><input aria-label="Profile photo zoom" type="range" min="1" max="1.8" step="0.05" value={photoZoom} onChange={(event) => setPhotoZoom(Number(event.target.value))} className="mt-2 w-full accent-[#3155ff]" /><button type="button" onClick={() => void applyPhotoAdjustment()} className="mt-2 text-xs font-semibold text-[#3155ff]">Apply crop</button></div>}
+            {photoSource && <><button type="button" onClick={() => setIsEditingPhoto(true)} className="mt-3 inline-flex items-center gap-2 text-xs font-semibold text-[#3155ff]"><Edit3 size={14} />Edit photo</button>{isEditingPhoto && <PhotoCropEditor source={photoSource} crop={photoCrop} onCropChange={setPhotoCrop} onApply={() => { void applyPhotoAdjustment(); setIsEditingPhoto(false); }} onCancel={() => setIsEditingPhoto(false)} />}</>}
 
             <h1 className="mt-6 text-2xl font-bold text-[#07142f]">{draft.fullName || "Student Profile"}</h1>
             <p className="mt-2 text-lg font-semibold text-[#43b92f]">{approvalLabel(draft.status)}</p>
@@ -351,16 +354,18 @@ function ProfileView({ student, onStudentChange }: { student: StudentAccount; on
 const maxProfilePhotoDimension = 512;
 const maxProfilePhotoDataUrlLength = 55_000;
 
-async function prepareProfilePhoto(source: string, zoom: number): Promise<string> {
+async function prepareProfilePhoto(source: string, cropX: number, cropY: number): Promise<string> {
   const image = await loadImage(source);
-  const cropSize = Math.min(image.naturalWidth, image.naturalHeight) / Math.max(1, zoom);
+  const cropSize = Math.min(image.naturalWidth, image.naturalHeight);
+  const xPadding = Math.max(0, (image.naturalWidth - cropSize) / 2);
+  const yPadding = Math.max(0, (image.naturalHeight - cropSize) / 2);
   const canvas = document.createElement("canvas");
   canvas.width = maxProfilePhotoDimension;
   canvas.height = maxProfilePhotoDimension;
   const context = canvas.getContext("2d");
   if (!context) throw new Error("Your browser could not process this photo.");
 
-  context.drawImage(image, (image.naturalWidth - cropSize) / 2, (image.naturalHeight - cropSize) / 2, cropSize, cropSize, 0, 0, canvas.width, canvas.height);
+  context.drawImage(image, xPadding + cropX * xPadding, yPadding + cropY * yPadding, cropSize, cropSize, 0, 0, canvas.width, canvas.height);
   for (const quality of [0.82, 0.7, 0.58, 0.46, 0.34]) {
     const result = canvas.toDataURL("image/jpeg", quality);
     if (result.length <= maxProfilePhotoDataUrlLength) return result;
@@ -487,4 +492,17 @@ function approvalLabel(status?: string) {
   if (status === "Approved") return "Approved by Admin";
   if (status === "Approval Pending by Admin" || status === "Completed" || status === "Profile Completed - Approval Pending") return "Approval Pending by Admin";
   return "Complete your profile for admin approval";
+}
+
+function PhotoCropEditor({ source, crop, onCropChange, onApply, onCancel }: { source: string; crop: { x: number; y: number }; onCropChange: (crop: { x: number; y: number }) => void; onApply: () => void; onCancel: () => void }) {
+  const drag = useRef<{ x: number; y: number; cropX: number; cropY: number } | null>(null);
+  function move(event: React.PointerEvent<HTMLDivElement>) {
+    if (!drag.current || !event.currentTarget.parentElement) return;
+    const bounds = event.currentTarget.parentElement.getBoundingClientRect();
+    onCropChange({
+      x: Math.max(-1, Math.min(1, drag.current.cropX + (event.clientX - drag.current.x) / (bounds.width * 0.14))),
+      y: Math.max(-1, Math.min(1, drag.current.cropY + (event.clientY - drag.current.y) / (bounds.height * 0.14)))
+    });
+  }
+  return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/65 p-4" role="dialog" aria-modal="true" aria-label="Adjust profile photo"><div className="w-full max-w-[560px] rounded-2xl bg-white p-5 shadow-2xl sm:p-6"><div className="mb-4 flex items-center justify-between gap-4"><div><h2 className="text-xl font-bold text-[#07142f]">Adjust profile photo</h2><p className="mt-1 text-sm text-[#5f6573]">Drag the crop grid to choose the part of the photo you want to keep.</p></div><div className="shrink-0 text-center"><div className="mx-auto h-16 w-16 overflow-hidden rounded-full border-4 border-white shadow-md"><img src={source} alt="Profile preview" className="h-full w-full object-cover" style={{ objectPosition: `${50 + crop.x * 50}% ${50 + crop.y * 50}%` }} /></div><span className="mt-1 block text-[11px] font-semibold text-[#5f6573]">Preview</span></div></div><div className="relative mx-auto aspect-square w-full max-w-[460px] overflow-hidden rounded-xl bg-slate-100 shadow-inner"><img src={source} alt="Adjust profile photo" draggable={false} className="h-full w-full select-none object-cover" /><div onPointerDown={(event) => { drag.current = { x: event.clientX, y: event.clientY, cropX: crop.x, cropY: crop.y }; event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={move} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }} className="absolute h-[72%] w-[72%] cursor-grab touch-none border-2 border-white shadow-[0_0_0_999px_rgba(15,23,42,.42)] active:cursor-grabbing" style={{ left: `${50 + crop.x * 14}%`, top: `${50 + crop.y * 14}%`, transform: "translate(-50%, -50%)" }}><div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,transparent_33%,rgba(255,255,255,.85)_33.5%,transparent_34%,transparent_66%,rgba(255,255,255,.85)_66.5%,transparent_67%),linear-gradient(to_bottom,transparent_33%,rgba(255,255,255,.85)_33.5%,transparent_34%,transparent_66%,rgba(255,255,255,.85)_66.5%,transparent_67%)]" /></div></div><div className="mt-5 grid grid-cols-2 gap-3"><button type="button" onClick={onCancel} className="rounded-md border border-[#dbe0e9] px-4 py-3 text-sm font-semibold text-[#5a5f68]">Cancel</button><button type="button" onClick={onApply} className="rounded-md bg-[#3155ff] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#2447f1]">Apply crop</button></div></div></div>;
 }
