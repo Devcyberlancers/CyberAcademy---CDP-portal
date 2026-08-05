@@ -1,5 +1,18 @@
 import { STUDENT_EMAIL_DOMAIN, studentProfile } from "@/lib/portal-config";
 
+export type StudentEducation = {
+  level: "Class 10" | "PUC" | "Diploma" | "Degree";
+  institution?: string;
+  boardOrUniversity?: string;
+  programme?: string;
+  customProgramme?: string;
+  yearFrom?: string;
+  yearTo?: string;
+  score?: string;
+  markscardFileName?: string;
+  markscardDataUrl?: string;
+};
+
 export type StudentAccount = {
   fullName: string;
   firstName: string;
@@ -19,6 +32,8 @@ export type StudentAccount = {
   resumeUrl?: string;
   resumeFileName?: string;
   resumeDataUrl?: string;
+  portfolioUrl?: string;
+  education?: StudentEducation[];
   mentorName?: string;
 };
 
@@ -149,6 +164,8 @@ function toApiProfile(account: StudentAccount) {
     resume_url: account.resumeUrl || "",
     resume_file_name: account.resumeFileName || "",
     resume_data_url: account.resumeDataUrl || null,
+    portfolio_url: account.portfolioUrl || "",
+    education_json: JSON.stringify(account.education || []),
     mentor_name: account.mentorName || "",
     photo_data_url: account.photoDataUrl || null
   };
@@ -173,9 +190,21 @@ function fromApiProfile(profile: Record<string, string | number | null>): Studen
     resumeUrl: String(profile.resume_url || ""),
     resumeFileName: String(profile.resume_file_name || ""),
     resumeDataUrl: profile.resume_data_url ? String(profile.resume_data_url) : undefined,
+    portfolioUrl: String(profile.portfolio_url || ""),
+    education: parseEducation(profile.education_json),
     mentorName: String(profile.mentor_name || ""),
     photoDataUrl: profile.photo_data_url ? String(profile.photo_data_url) : undefined
   };
+}
+
+function parseEducation(value: string | number | null | undefined): StudentEducation[] {
+  if (typeof value !== "string" || !value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((item): item is StudentEducation => Boolean(item) && typeof item === "object") : [];
+  } catch {
+    return [];
+  }
 }
 
 function normalizeName(value: string) {

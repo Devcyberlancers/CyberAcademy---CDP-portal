@@ -13,6 +13,15 @@ Cyber Academy is a full-stack learning and placement platform with a Student Por
 
 Both portals authenticate through the same API and use the same `cyber_academy` database. The legacy FastAPI services have been removed.
 
+## What is included
+
+- **Database-backed administration:** student approval, profiles, courses, modules, module resources, course quizzes, standalone assessments, bulk student operations, SMTP delivery, and reports are saved through the shared API and MySQL database.
+- **Student learning flow:** every course card shows its real module/quiz count, publishing date, optional end date, and personal progress. The first module is available immediately; passing its course quiz unlocks the next module. Course quizzes stay inside the course experience and do not appear in the Assessments area.
+- **Course resources:** students can play an uploaded or YouTube video and open or download the PDF/link resources supplied for the selected module.
+- **Live progress reports:** completion and quiz results are persisted per student and course. Admin course/student reports derive their values from that saved progress rather than browser-only state.
+- **Jobs:** student job summaries and applications use API data. The backend refreshes due job preferences and performs a daily refresh check; the current refresh status is persisted for administrators.
+- **Resilient portals:** both Next.js apps have recovery pages for unexpected rendering failures, and portal-access polling handles temporary API/network failures without crashing the dashboard.
+
 ## Repository structure
 
 ```text
@@ -37,9 +46,10 @@ npm run setup
 npm run start:all
 ```
 
-The first command installs all three applications, creates a local-only backend
-configuration, starts an isolated MySQL 8 container, and creates the development
-schema. The second starts the Student portal, Admin portal, and API. Open
+The first command installs all three applications, installs the local Playwright
+browser used by job collection, creates a local-only backend configuration,
+starts an isolated MySQL 8 container, and creates the development schema. The
+second starts the Student portal, Admin portal, and API. Open
 `http://localhost:3000` when it finishes.
 
 `npm run setup` never overwrites an existing `backend/.env.local`; contributors
@@ -52,9 +62,12 @@ Install:
 
 - Node.js 22 or newer
 - npm 10 or newer
-- MySQL 8
 - Git
-- Docker with Docker Compose v2 for production deployment
+- Docker Desktop with Docker Compose v2 for the automatic local setup
+
+MySQL is supplied by the local Docker container when using `npm run setup`.
+Install MySQL yourself only when you deliberately want to use a separate local
+database.
 
 The backend uses Playwright for job collection. Local development may require Chromium:
 
@@ -259,66 +272,33 @@ No account or email is created until the administrator selects **Approve, Create
 Run all checks before opening a pull request:
 
 ```powershell
-cd backend
-npm run typecheck
-npm run build
-
-cd "..\Student\Students portal"
-npm run typecheck
-npm run build
-
-cd "..\..\Admin\Admin_panel\i-need-the-full-working-of\frontend"
-npm run typecheck
-npm run build
+npm run verify
 ```
 
 GitHub Actions performs these checks automatically on pushes and pull requests.
 
+For a practical end-to-end smoke test after starting the apps, create or publish
+a course in Admin, add module content and a quiz, then sign in as an approved
+student. Reload after each step: the course, module content, quiz result, and
+progress should remain available because they are stored in MySQL. Verify a
+standalone assessment separately in the Assessments tab.
+
 ## Hostinger production deployment
 
-Hostinger Cloud supports the Student portal, Admin portal, and NestJS API as managed Node.js Web Apps. Deploy them as three separate apps with their own domains and environment variables; do not use the Docker Compose configuration on a Cloud plan. Follow [HOSTINGER_CLOUD_DEPLOYMENT.md](HOSTINGER_CLOUD_DEPLOYMENT.md).
+Hostinger Cloud supports the Student portal, Admin portal, and NestJS API as
+managed Node.js Web Apps. Deploy the same Git repository as **three separate
+apps** with their own domains and environment variables; do not use Docker
+Compose or the VPS deployment files on a Cloud plan.
 
-The Docker Compose procedure below is for a Hostinger VPS only. It remains the deployment option when Playwright's Chromium runtime or other server-level dependencies cannot run in the managed Cloud environment.
+Use the exact build/start commands and environment variables in
+[HOSTINGER_CLOUD_DEPLOYMENT.md](HOSTINGER_CLOUD_DEPLOYMENT.md). The deployment
+guide also includes the post-deploy checks for profile saving, persisted course
+content, email delivery, and API health.
 
-Recommended starting VPS:
-
-- Ubuntu 24.04
-- 2 vCPU
-- 4 GB RAM
-- 50 GB storage
-
-Configure these DNS records to the VPS:
-
-| Host | Purpose |
-| --- | --- |
-| `academy.cyberlancers.in` | Unified login and Student Portal |
-| `admin.academy.cyberlancers.in` | Admin Portal |
-| `api.academy.cyberlancers.in` | Unified API |
-| `admin-api.academy.cyberlancers.in` | Unified API compatibility hostname |
-
-On the VPS:
-
-```bash
-git clone https://github.com/YOUR_USERNAME/YOUR_REPOSITORY.git CyberAcademy
-cd CyberAcademy/deployment
-cp .env.example .env
-chmod 600 .env
-```
-
-Replace every `CHANGE_ME` value, then run:
-
-```bash
-bash preflight.sh
-docker compose --env-file .env config
-docker compose build
-docker compose up -d
-docker compose ps
-docker compose logs -f --tail=100
-```
-
-Caddy terminates HTTPS automatically after the DNS records resolve. Only ports `80` and `443` should be publicly open. Do not publicly expose MySQL or ports `3000`, `3001`, and `8000`.
-
-See [deployment/README.md](deployment/README.md) for operational checks, backups, administrator setup, updates, and SMTP requirements.
+The API deployment installs Playwright's project-local Chromium automatically.
+If Hostinger's managed runtime disallows browser execution or a job source blocks
+automated collection, the learning portals continue to run; inspect the saved
+job refresh status/logs and use an allowed external worker for that integration.
 
 ## Email delivery
 

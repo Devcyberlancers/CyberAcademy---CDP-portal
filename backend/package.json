@@ -24,7 +24,7 @@
     "prisma:studio": "prisma studio",
     "postinstall": "prisma generate",
     "start:production": "node dist/main.js",
-    "deploy:build": "prisma generate && nest build",
+    "deploy:build": "prisma db push && prisma generate && nest build",
     "playwright:install": "node scripts/install-playwright.mjs",
     "audit:routes": "node scripts/audit-route-parity.mjs",
     "typecheck": "tsc --noEmit"

@@ -205,14 +205,22 @@ export class StudentPortalService {
 
   async saveProfile(dto: StudentProfileDto) {
     const email = dto.email.toLowerCase();
-    const required = [dto.full_name, dto.registration_number, dto.phone, dto.course, dto.department];
-    const status = required.every((value) => value.trim()) ? 'Completed' : 'Waiting for Student';
+    const required = [dto.full_name, dto.registration_number, dto.phone, dto.department];
     const firstName = dto.first_name || dto.full_name.trim().split(/\s+/)[0] || '';
     const profile = await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.student_profiles.findUnique({ where: { email }, select: { status: true } });
+      // Approval is an administrative decision. Saving a profile must never
+      // allow a student to mark it approved or reset an existing approval.
+      const status = existing?.status === 'Approved'
+        ? 'Approved'
+        : required.every((value) => value.trim())
+          ? 'Approval Pending by Admin'
+          : 'Waiting for Student';
+      const { status: _studentProvidedStatus, ...profileData } = dto;
       const saved = await tx.student_profiles.upsert({
         where: { email },
-        create: { ...dto, email, first_name: firstName, status, updated_at: new Date() },
-        update: { ...dto, email, first_name: firstName, status, updated_at: new Date() },
+        create: { ...profileData, email, first_name: firstName, status, updated_at: new Date() },
+        update: { ...profileData, email, first_name: firstName, status, updated_at: new Date() },
       });
       const user = await tx.users.findUnique({ where: { email }, include: { students: true } });
       const profileUsn = (dto.registration_number || dto.cyberlancers_id).trim().slice(0, 40);
@@ -503,7 +511,7 @@ export class StudentPortalService {
       data: {
         full_name: dto.name, email: dto.email.toLowerCase(), phone: dto.phone,
         course: dto.degree, department: dto.branch, batch: dto.batch,
-        status: 'Completed', tag: 'Profile Completed - Approval Pending', updated_at: new Date(),
+        status: 'Approval Pending by Admin', tag: 'Profile Completed - Approval Pending', updated_at: new Date(),
       },
     });
     return this.profileOut(updated);

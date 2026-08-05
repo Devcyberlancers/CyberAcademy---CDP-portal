@@ -107,7 +107,7 @@ export class StudentAccountDto {
   @IsOptional() @IsString() branch?: string;
   @IsOptional() @IsString() batch?: string;
   @IsString() @MinLength(3) @MaxLength(80) username!: string;
-  @IsString() @MinLength(8) @MaxLength(120) temp_password!: string;
+  @IsOptional() @IsString() @MaxLength(120) temp_password?: string;
   @IsString() @MinLength(5) @MaxLength(500) portal_link!: string;
   @IsEmail() credential_email!: string;
   @IsOptional() @IsString() sender_email?: string;
@@ -122,7 +122,7 @@ export class CredentialSendDto {
   @IsString() @MinLength(5) @MaxLength(500) portal_link!: string;
   @IsEmail() company_email!: string;
   @IsOptional() @IsString() sender_email?: string;
-  @IsString() @MinLength(8) @MaxLength(120) temp_password!: string;
+  @IsOptional() @IsString() @MaxLength(120) temp_password?: string;
 }
 
 export class LegacyStudentLoginDto {

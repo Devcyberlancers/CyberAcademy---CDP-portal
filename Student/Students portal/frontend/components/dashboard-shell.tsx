@@ -59,7 +59,7 @@ export function DashboardShell({
   const [portalAccess, setPortalAccess] = useState<PortalAccess>({ courses_enabled: false, assessments_enabled: false, jobs_enabled: false });
   const [accessLoaded, setAccessLoaded] = useState(false);
   const [accessError, setAccessError] = useState("");
-  const profileIncomplete = !student.fullName || !student.registrationNumber || !student.phone || !student.course || !student.department;
+  const profileIncomplete = !student.fullName || !student.registrationNumber || !student.phone || !student.department;
   const notificationCount = messages.length + (profileIncomplete ? 1 : 0);
 
   useEffect(() => {

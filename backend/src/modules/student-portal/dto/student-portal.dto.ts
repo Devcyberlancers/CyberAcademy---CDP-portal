@@ -40,6 +40,8 @@ export class StudentProfileDto {
   @IsString() @IsOptional() resume_url = '';
   @IsString() @IsOptional() resume_file_name = '';
   @IsString() @IsOptional() resume_data_url?: string;
+  @IsString() @IsOptional() portfolio_url = '';
+  @IsString() @IsOptional() education_json = '';
   @IsString() @IsOptional() mentor_name = '';
   @IsString() @IsOptional() photo_data_url?: string;
 }

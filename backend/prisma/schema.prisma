@@ -417,6 +417,8 @@ model student_profiles {
   resume_file_name    String?  @default("") @db.VarChar(255)
   resume_data_url     String?  @db.LongText
   personal_email      String?  @db.VarChar(255)
+  portfolio_url       String   @default("") @db.VarChar(500)
+  education_json      String?  @db.LongText
 }
 
 model students {

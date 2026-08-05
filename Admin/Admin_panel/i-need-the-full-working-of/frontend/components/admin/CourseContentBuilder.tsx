@@ -324,10 +324,6 @@ export function CourseContentBuilder({ courseId }: CourseContentBuilderProps) {
   }
 
   function addManualQuestion() {
-    if (draft.generatedQuestions.length >= 5) {
-      setNotice("Module quizzes are limited to 5 questions.");
-      return;
-    }
     setDraft({
       ...draft,
       generatedQuestions: [
@@ -534,22 +530,19 @@ export function CourseContentBuilder({ courseId }: CourseContentBuilderProps) {
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-portal-line px-4 py-3">
                   <div>
                     <p className="font-bold text-slate-950">{draft.quiz || "Module Quiz"}</p>
-                    <p className="text-xs text-slate-500">Keep 5 questions for module checks. Admin can generate, edit, or enter them manually.</p>
+                    <p className="text-xs text-slate-500">Add as many questions as needed. Admin can generate, edit, or enter them manually.</p>
                   </div>
                   <button
                     type="button"
                     onClick={addManualQuestion}
-                    disabled={draft.generatedQuestions.length >= 5}
-                    className={`h-9 rounded-md border border-portal-line px-3 text-xs font-bold ${
-                      draft.generatedQuestions.length >= 5 ? "cursor-not-allowed text-slate-400" : "text-portal-blue"
-                    }`}
+                    className="h-9 rounded-md border border-portal-line px-3 text-xs font-bold text-portal-blue"
                   >
                     Add Manual Question
                   </button>
                 </div>
                 {draft.generatedQuestions.length ? (
                   <div className="divide-y divide-portal-line">
-                    {draft.generatedQuestions.slice(0, 5).map((question, index) => (
+                    {draft.generatedQuestions.map((question, index) => (
                       <div key={`${question.question}-${index}`} className="grid gap-3 p-4 text-sm">
                         <div className="flex items-center justify-between gap-3">
                           <p className="font-bold text-slate-800">Question {index + 1}</p>
@@ -594,7 +587,7 @@ export function CourseContentBuilder({ courseId }: CourseContentBuilderProps) {
                     ))}
                   </div>
                 ) : (
-                  <div className="p-4 text-sm font-semibold text-slate-500">Generate 5 questions or add them manually.</div>
+                  <div className="p-4 text-sm font-semibold text-slate-500">Generate suggested questions or add questions manually.</div>
                 )}
               </div>
             </div>

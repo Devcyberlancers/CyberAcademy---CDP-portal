@@ -89,11 +89,11 @@ export function LoginForm() {
   };
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="grid gap-7">
-      <label className="grid gap-3 text-[15px] font-semibold text-[#010816]">
+    <form onSubmit={handleSubmit(onSubmit)} className="grid gap-5 sm:gap-6">
+      <label className="grid gap-2 text-base font-semibold text-[#010816]">
         Email
         {showPasswordStep ? (
-          <span className="flex h-[50px] items-center rounded-md border border-[#cfd4dc] bg-white/80 px-4 text-base font-semibold">
+          <span className="flex h-11 items-center rounded-md border border-[#cfd4dc] bg-white/80 px-3.5 text-[17px] font-semibold">
             <span className="min-w-0 flex-1 truncate">{getValues("email")}</span>
             <button
               type="button"
@@ -109,7 +109,7 @@ export function LoginForm() {
         ) : (
           <input
             {...register("email")}
-            className="h-[50px] rounded-md border border-[#cfd4dc] bg-white/80 px-4 text-base outline-none transition focus:border-[#3155ff] focus:ring-2 focus:ring-[#3155ff]/15"
+            className="h-11 rounded-md border border-[#cfd4dc] bg-white/80 px-3.5 text-[17px] outline-none transition focus:border-[#3155ff] focus:ring-2 focus:ring-[#3155ff]/15"
             aria-label="Email"
           />
         )}
@@ -117,19 +117,19 @@ export function LoginForm() {
       </label>
 
       {showPasswordStep && (
-        <div className="grid gap-4">
-          <label className="grid gap-3 text-[15px] font-semibold text-[#010816]">
+        <div className="grid gap-3">
+          <label className="grid gap-2 text-base font-semibold text-[#010816]">
             Password
             <input
               {...register("password")}
               type={showPassword ? "text" : "password"}
-              className="h-[50px] rounded-md border border-[#cfd4dc] bg-white/80 px-4 text-base outline-none transition focus:border-[#3155ff] focus:ring-2 focus:ring-[#3155ff]/15"
+              className="h-11 rounded-md border border-[#cfd4dc] bg-white/80 px-3.5 text-[17px] outline-none transition focus:border-[#3155ff] focus:ring-2 focus:ring-[#3155ff]/15"
               placeholder="Enter your password"
               autoFocus
             />
             {errors.password && <span className="text-xs text-red-600">{errors.password.message}</span>}
           </label>
-          <div className="flex items-center justify-between gap-4 text-[15px]">
+          <div className="flex items-center justify-between gap-4 text-base">
             <label className="flex items-center gap-2 font-semibold text-[#010816]">
               <input
                 type="checkbox"
@@ -148,12 +148,12 @@ export function LoginForm() {
         type={showPasswordStep ? "submit" : "button"}
         onClick={showPasswordStep ? undefined : continueToPassword}
         disabled={isSubmitting}
-        className="focus-ring h-[50px] rounded-[4px] bg-[#3155ff] px-5 text-lg font-semibold text-white transition hover:bg-[#2447f1] disabled:opacity-60"
+        className="focus-ring h-11 rounded-[4px] bg-[#3155ff] px-5 text-lg font-semibold text-white transition hover:bg-[#2447f1] disabled:opacity-60"
       >
         {isSubmitting ? "Verifying..." : showPasswordStep ? "Login" : "Next"}
       </button>
 
-      <Link href="/test-compatibility" className="text-center text-[15px] font-medium text-[#3155ff]">
+      <Link href="/test-compatibility" className="text-center text-base font-medium text-[#3155ff]">
         System Compatibility Check?
       </Link>
     </form>

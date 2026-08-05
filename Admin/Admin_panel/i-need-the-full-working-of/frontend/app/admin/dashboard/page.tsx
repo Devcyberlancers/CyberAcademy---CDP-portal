@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -36,9 +36,9 @@ export default function AdminDashboardPage() {
   const [liveStudents, setLiveStudents] = useState<DbStudent[]>([]);
   const [liveApplications, setLiveApplications] = useState<AdminJobApplicationActivity[]>([]);
   const approvedStudents = students.filter((student) => student.status !== "Pending Approval" && student.status !== "Rejected");
-  const accountCandidates = registrations.filter((registration) => registration.profileStatus !== "Completed");
+  const accountCandidates = registrations.filter((registration) => !["Completed", "Approval Pending by Admin", "Profile Completed - Approval Pending"].includes(registration.profileStatus ?? ""));
   const unsentAccountCandidates = accountCandidates.filter((registration) => registration.accountStatus !== "Credentials Sent");
-  const profileApprovals = registrations.filter((registration) => registration.profileStatus === "Completed");
+  const profileApprovals = registrations.filter((registration) => ["Completed", "Approval Pending by Admin", "Profile Completed - Approval Pending"].includes(registration.profileStatus ?? ""));
   const selectedAccount = accountCandidates.find((registration) => registration.id === selectedAccountId) ?? accountCandidates[0];
 
   useEffect(() => {
@@ -118,11 +118,11 @@ export default function AdminDashboardPage() {
 
           <SectionCard title="New Student Registration Approvals">
             <div className="space-y-4">
-              {liveStudents.filter((item) => item.profile_status === "Completed" || item.status === "Pending Approval").length === 0 ? (
+              {liveStudents.filter((item) => ["Completed", "Approval Pending by Admin", "Profile Completed - Approval Pending"].includes(item.profile_status ?? "") || item.status === "Pending Approval").length === 0 ? (
                 <div className="rounded-md border border-slate-100 bg-slate-50 p-4 text-sm font-semibold text-slate-600">
                   No completed profiles waiting for approval.
                 </div>
-              ) : liveStudents.filter((item) => item.profile_status === "Completed" || item.status === "Pending Approval").map((approval) => (
+              ) : liveStudents.filter((item) => ["Completed", "Approval Pending by Admin", "Profile Completed - Approval Pending"].includes(item.profile_status ?? "") || item.status === "Pending Approval").map((approval) => (
                 <div key={approval.id} className="rounded-md border border-portal-line p-4">
                   <p className="font-bold text-slate-950">{approval.name}</p>
                   <p className="mt-1 text-sm text-slate-500">{approval.register_number} · {approval.email}</p>
@@ -311,17 +311,13 @@ function DashboardAccountCreator({ registrations, selectedId, onSelect, registra
     setNotice("");
   }, [mode, registration]);
 
-  const requiredReady = [name, regNo, personalEmail, credentialEmail, senderEmail, companyEmail, tempPassword, portalLink].every(
+  const requiredReady = [name, regNo, personalEmail, credentialEmail, senderEmail, companyEmail, portalLink].every(
     (value) => value.trim().length > 0
   );
 
   async function requireFilled(action: () => Promise<void> | void) {
     if (!requiredReady) {
       setNotice("Fill all account and email fields before creating or sending credentials.");
-      return;
-    }
-    if (tempPassword.length < 8) {
-      setNotice("The generated password must contain at least 8 characters because the Student login enforces the same minimum.");
       return;
     }
     if (!credentialEmail.trim().toLowerCase().endsWith("@cyberlancers.in")) {
@@ -448,10 +444,6 @@ function DashboardAccountCreator({ registrations, selectedId, onSelect, registra
             <span className="mb-1 block font-bold text-slate-600">Cyber Lancers Login Email</span>
             <input value={credentialEmail} onChange={(event) => setCredentialEmail(event.target.value)} className="h-9 w-full rounded-md border border-portal-line px-3 outline-none focus:border-portal-blue" placeholder="name@cyberlancers.in" type="email" />
           </label>
-          <label>
-            <span className="mb-1 block font-bold text-slate-600">Password</span>
-            <input value={tempPassword} onChange={(event) => setTempPassword(event.target.value)} className="h-9 w-full rounded-md border border-portal-line px-3 outline-none focus:border-portal-blue" placeholder="set temporary password" />
-          </label>
         </div>
       </div>
       <div className="mt-3 overflow-hidden rounded-md bg-white p-3 text-xs text-slate-700">
@@ -459,7 +451,7 @@ function DashboardAccountCreator({ registrations, selectedId, onSelect, registra
         <p className="mt-1">From: {senderEmail}</p>
         <p>To: {personalEmail}</p>
         <p>Subject: Your student portal login credentials</p>
-        <p className="mt-2 break-words">Hello {name}, your portal account is ready. Use {portalLink} with email {credentialEmail} and temporary password {tempPassword}.</p>
+        <p className="mt-2 break-words">Hello {name}, your portal account is ready. Use {portalLink} with email {credentialEmail}. A secure temporary password will be generated and sent only to the student.</p>
         <p className="mt-1 break-words">Company email for future updates: {companyEmail}</p>
       </div>
       {notice ? <p className="mt-3 rounded-md bg-amber-50 p-3 text-xs font-bold text-amber-700">{notice}</p> : null}
@@ -532,7 +524,7 @@ type CsvStudentRow = {
   register_number: string;
   delivery_email: string;
   login_email: string;
-  temp_password: string;
+  temp_password?: string;
   phone: string;
   degree: string;
   branch: string;
@@ -571,13 +563,12 @@ function BulkCsvAccountCreator({ onCreate }: {
 
   function rowError(row: CsvStudentRow) {
     if (!row.name || !row.register_number || !row.delivery_email || !row.login_email) return "Required information is missing";
-    if (row.temp_password.length < 8) return "Password must contain at least 8 characters";
     if (!row.login_email.toLowerCase().endsWith("@cyberlancers.in")) return "Login email must end with @cyberlancers.in";
     return "";
   }
 
   function downloadTemplate() {
-    const csv = "name,register_number,delivery_email,login_email,temp_password,phone,degree,branch,batch\r\nExample Student,CA2026001,personal@example.com,example.student@cyberlancers.in,Secure@2026,9876543210,B.Tech,CSE,2026";
+    const csv = "name,register_number,delivery_email,login_email,phone,degree,branch,batch\r\nExample Student,CA2026001,personal@example.com,example.student@cyberlancers.in,9876543210,B.Tech,CSE,2026";
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
     const link = document.createElement("a");
     link.href = url; link.download = "cyber-academy-student-import-template.csv"; link.click();
@@ -599,7 +590,7 @@ function BulkCsvAccountCreator({ onCreate }: {
         seen.add(identity);
         const id = await onCreate(
           { name: row.name, regNo: row.register_number, email: row.delivery_email, phone: row.phone, degree: row.degree, branch: row.branch, batch: row.batch },
-          { name: row.name, username: row.login_email, credentialEmail: row.login_email, tempPassword: row.temp_password, portalLink, senderEmail: "", companyEmail: "" }
+          { name: row.name, username: row.login_email, credentialEmail: row.login_email, tempPassword: "", portalLink, senderEmail: "", companyEmail: "" }
         );
         if (!id) throw new Error("student already exists or could not be created");
         created++;
@@ -624,7 +615,7 @@ function BulkCsvAccountCreator({ onCreate }: {
           const file = event.target.files?.[0]; if (!file) return;
           const parsed = parseStudentCsv(await file.text());
           const headers = (parsed[0] ?? []).map((header) => header.trim().toLowerCase());
-          const required = ["name", "register_number", "delivery_email", "login_email", "temp_password"];
+          const required = ["name", "register_number", "delivery_email", "login_email"];
           if (required.some((header) => !headers.includes(header))) { setNotice(`Required headers: ${required.join(", ")}`); setRows([]); return; }
           const value = (row: string[], header: keyof CsvStudentRow) => row[headers.indexOf(header)] ?? "";
           setRows(parsed.slice(1).map((row) => ({ name: value(row, "name"), register_number: value(row, "register_number"), delivery_email: value(row, "delivery_email"), login_email: value(row, "login_email"), temp_password: value(row, "temp_password"), phone: value(row, "phone"), degree: value(row, "degree"), branch: value(row, "branch"), batch: value(row, "batch") })).filter((row) => Object.values(row).some(Boolean)));
@@ -638,7 +629,7 @@ function BulkCsvAccountCreator({ onCreate }: {
         {rowError(preview) ? <p className="mt-3 rounded-md bg-red-50 p-3 text-sm font-bold text-red-700">{rowError(preview)}</p> : null}
         <div className="mt-3 overflow-hidden rounded-lg border border-portal-line bg-white text-sm">
           <div className="border-b border-portal-line bg-slate-50 p-3"><p><b>From:</b> Cyber Academy</p><p className="mt-1 break-all"><b>To:</b> {preview.delivery_email || "Missing recipient email"}</p><p className="mt-1"><b>Subject:</b> Your Cyber Academy portal login</p></div>
-          <div className="space-y-3 p-4 text-slate-700"><p>Hello <b>{preview.name || "Student"}</b>,</p><p>Your Cyber Academy account is ready.</p><div className="rounded-md bg-blue-50 p-3"><p><b>Username:</b> {preview.login_email || "Missing login email"}</p><p className="mt-1"><b>Temporary password:</b> {preview.temp_password || "Missing password"}</p></div><p><b>Portal:</b> <span className="break-all text-portal-blue">{portalLink}</span></p><p>Please change your password after signing in.</p></div>
+          <div className="space-y-3 p-4 text-slate-700"><p>Hello <b>{preview.name || "Student"}</b>,</p><p>Your Cyber Academy account is ready.</p><div className="rounded-md bg-blue-50 p-3"><p><b>Username:</b> {preview.login_email || "Missing login email"}</p><p className="mt-1">A secure temporary password will be generated and emailed directly to the student.</p></div><p><b>Portal:</b> <span className="break-all text-portal-blue">{portalLink}</span></p><p>Please change your password after signing in.</p></div>
         </div>
         <div className="mt-3 max-h-36 overflow-y-auto rounded-md border border-amber-200 bg-white">{rows.map((row, index) => <button type="button" key={`${row.login_email}-${index}`} onClick={() => setPreviewIndex(index)} className={`flex w-full items-center justify-between gap-3 border-b border-portal-line p-3 text-left text-xs last:border-0 ${previewIndex === index ? "bg-blue-50" : ""}`}><span><b>{row.name || `Row ${index + 2}`}</b><br /><span className="text-slate-500">{row.delivery_email}</span></span><span className={rowError(row) ? "font-bold text-red-600" : "font-bold text-emerald-600"}>{rowError(row) ? "Needs correction" : "Ready"}</span></button>)}</div>
         <button type="button" disabled={busy || rows.some((row) => Boolean(rowError(row)))} onClick={() => void createAll()} className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-md bg-emerald-600 px-4 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"><Mail size={17} />{busy ? "Creating and emailing..." : `Approve, Create & Send ${rows.length} Emails`}</button>

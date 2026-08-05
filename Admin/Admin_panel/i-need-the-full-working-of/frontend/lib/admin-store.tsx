@@ -19,6 +19,8 @@ export type StudentRecord = {
   degree?: string;
   branch?: string;
   batch?: string;
+  portfolioUrl?: string;
+  educationSummary?: Array<{ level: string; year_from: string; year_to: string; score: string }>;
   notes?: string[];
 };
 
@@ -90,7 +92,7 @@ const initialRegistrations: RegistrationRecord[] = [];
 
 function dbStatusToUi(status: string, profileStatus?: string | null): StudentStatus {
   if (status === "suspended") return "Suspended";
-  if (profileStatus === "Completed") return "Pending Approval";
+  if (["Completed", "Approval Pending by Admin", "Profile Completed - Approval Pending"].includes(profileStatus ?? "")) return "Pending Approval";
   if (profileStatus === "Waiting for Student") return "New User";
   if (profileStatus === "Approved") return "In Progress";
   if (status === "advanced") return "Advanced";
@@ -113,6 +115,8 @@ function studentFromDb(student: DbStudent): StudentRecord {
     degree: student.degree ?? undefined,
     branch: student.branch ?? undefined,
     batch: student.batch ?? undefined,
+    portfolioUrl: student.portfolio_url ?? undefined,
+    educationSummary: student.education_summary ?? [],
     notes: ["Loaded from MySQL database."]
   };
 }
@@ -610,7 +614,7 @@ export function AdminStoreProvider({ children }: { children: React.ReactNode }) 
                   ...student,
                   notes: [
                     ...(student.notes ?? []),
-                    `Credential email sent. From: ${fromAddress}. To: ${toAddress}. Company email: ${companyEmail}. Link: ${portalLink}, username: ${username}, temporary password: ${tempPassword}.`
+                    `Credential email sent. From: ${fromAddress}. To: ${toAddress}. Company email: ${companyEmail}. Link: ${portalLink}, username: ${username}.`
                   ]
                 }
               : student

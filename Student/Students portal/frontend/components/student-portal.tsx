@@ -545,7 +545,7 @@ function DashboardView({
           {student.email && <p className="mt-3 text-lg text-[#7d8189]">{student.email}</p>}
           <div className="mt-5 flex flex-wrap gap-x-6 gap-y-3 text-base text-[#5a5f68]">
             <ProfileMeta label="Register Number" value={student.registrationNumber} />
-            <ProfileMeta label="Course" value={student.course} />
+            <ProfileMeta label="Department" value={student.department} />
             <ProfileMeta label="Batch" value={student.batch} />
             <ProfileMeta label="College" value={student.college} />
             {student.cyberlancersId && <ProfileMeta label="Cyberlancers ID" value={student.cyberlancersId} />}

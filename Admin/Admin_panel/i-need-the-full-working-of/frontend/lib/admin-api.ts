@@ -87,6 +87,8 @@ export type DbStudent = {
   credential_email?: string | null;
   sender_email?: string | null;
   company_email?: string | null;
+  portfolio_url?: string | null;
+  education_summary?: Array<{ level: string; year_from: string; year_to: string; score: string }>;
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

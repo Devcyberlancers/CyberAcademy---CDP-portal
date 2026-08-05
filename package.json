@@ -12,5 +12,8 @@
     "hostinger:start:student": "npm --prefix \"Student/Students portal\" run start",
     "hostinger:build:admin": "npm --prefix \"Admin/Admin_panel/i-need-the-full-working-of/frontend\" ci && npm --prefix \"Admin/Admin_panel/i-need-the-full-working-of/frontend\" run build",
     "hostinger:start:admin": "npm --prefix \"Admin/Admin_panel/i-need-the-full-working-of/frontend\" run start"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.24"
   }
 }

@@ -152,10 +152,6 @@ export default function StudentDetailPage() {
                     <input value={username} onChange={(event) => setUsername(event.target.value)} className="h-11 w-full rounded-md border border-portal-line px-3 outline-none focus:border-portal-blue" placeholder="name@cyberlancers.in" type="email" />
                   </label>
                   <label>
-                    <span className="mb-2 block text-sm font-bold text-slate-700">Temporary Password</span>
-                    <input value={tempPassword} onChange={(event) => setTempPassword(event.target.value)} className="h-11 w-full rounded-md border border-portal-line px-3 outline-none focus:border-portal-blue" />
-                  </label>
-                  <label>
                     <span className="mb-2 block text-sm font-bold text-slate-700">Send Credentials To</span>
                     <input value={deliveryEmail} onChange={(event) => setDeliveryEmail(event.target.value)} className="h-11 w-full rounded-md border border-portal-line px-3 outline-none focus:border-portal-blue" placeholder="Enter recipient for this email only" type="email" />
                   </label>
@@ -206,6 +202,12 @@ export default function StudentDetailPage() {
               <div><p className="text-sm text-slate-500">Overall progress</p><div className="mt-3"><ProgressBar value={student.progress} /></div></div>
               <div><p className="text-sm text-slate-500">Current module</p><p className="mt-3 font-bold">{student.module}</p></div>
               <div><p className="text-sm text-slate-500">Last login</p><p className="mt-3 font-bold">{student.lastLogin}</p></div>
+            </div>
+          </SectionCard>
+          <SectionCard title="Academic Summary">
+            <div className="grid gap-3 md:grid-cols-3">
+              {(student.educationSummary ?? []).map((education) => <div key={education.level} className="rounded-md border border-portal-line bg-slate-50 p-4"><p className="font-bold text-slate-950">{education.level}</p><p className="mt-2 text-sm text-slate-500">Years: {education.year_from || "—"} to {education.year_to || "—"}</p><p className="mt-1 text-sm text-slate-500">Score: <b className="text-slate-800">{education.score || "—"}</b></p></div>)}
+              {!(student.educationSummary ?? []).length ? <p className="text-sm text-slate-500">The student has not added academic scores yet.</p> : null}
             </div>
           </SectionCard>
           <SectionCard title="Assigned Courses">
@@ -348,28 +350,6 @@ export default function StudentDetailPage() {
 
           <SectionCard title="Admin Actions">
             <div className="space-y-3">
-              <select value={selectedCourseId} onChange={(event) => setSelectedCourseId(event.target.value)} className="h-11 w-full rounded-md border border-portal-line bg-white px-3 text-sm font-semibold text-slate-700">
-                <option value="">Choose a published course</option>
-                {databaseCourses.filter((course) => course.status === "active" || course.status === "published").map((course) => <option key={course.id} value={course.id}>{course.title}</option>)}
-              </select>
-              <button
-                disabled={adminActionBusy || !selectedCourseId}
-                onClick={async () => {
-                  setAdminActionBusy(true);
-                  setAdminActionNotice("");
-                  try {
-                    const title = await assignCourse(student.id, Number(selectedCourseId));
-                    setAdminActionNotice(`${title} assigned successfully. Course access is enabled for this student.`);
-                    const databaseId = registration?.dbStudentId ?? Number(student.id.replace("DB-STU-", ""));
-                    if (Number.isFinite(databaseId)) setLearningRecord(await getStudentLearningRecord(databaseId));
-                  } catch (error) {
-                    setAdminActionNotice(error instanceof Error ? error.message : "Course assignment failed.");
-                  } finally {
-                    setAdminActionBusy(false);
-                  }
-                }}
-                className="flex h-11 w-full items-center gap-3 rounded-md border border-portal-line px-4 font-bold text-slate-700 disabled:opacity-50"
-              ><BriefcaseBusiness size={18} />Assign Selected Course</button>
               <button
                 disabled={adminActionBusy}
                 onClick={async () => {
