@@ -1,4 +1,4 @@
-﻿import { courses as seedCourses } from "@/lib/admin-data";
+import { courses as seedCourses } from "@/lib/admin-data";
 import { listCoursesFromDb } from "@/lib/admin-api";
 
 export type AdminCourse = {
@@ -41,7 +41,7 @@ export function normalizeCourse(course: Partial<AdminCourse> & { id?: string; ti
     completion: Number(course.completion ?? 0),
     modules: Number(course.modules ?? 0),
     lessons: Number(course.lessons ?? 0),
-    updated: course.updated || new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }),
+    updated: course.updated || new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Kolkata" }),
     shortDescription: course.shortDescription || "Add a short description for students.",
     description: course.description || "Add detailed course description, outcomes, and learning path here.",
     level: course.level || "Beginner",

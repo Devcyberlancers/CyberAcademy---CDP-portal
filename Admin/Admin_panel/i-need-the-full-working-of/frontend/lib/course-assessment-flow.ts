@@ -154,7 +154,7 @@ export function gradeCourseAssessment(
     assessmentId: assessment.id,
     assessmentTitle: assessment.title,
     module: assessment.module,
-    submittedAt: new Date().toLocaleString(),
+    submittedAt: new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) + " IST",
     score,
     totalMarks,
     percent,

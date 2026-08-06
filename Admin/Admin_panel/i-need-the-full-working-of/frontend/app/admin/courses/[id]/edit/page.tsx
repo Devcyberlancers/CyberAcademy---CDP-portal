@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
@@ -65,7 +65,7 @@ export default function EditCoursePage() {
       } else if (status === "Draft") {
         await moveCourseToDraftInDb(courseId);
       }
-      const nextCourse = normalizeCourse({ ...course, status: status ?? course.status, updated: new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) });
+      const nextCourse = normalizeCourse({ ...course, status: status ?? course.status, updated: new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Kolkata" }) });
       const exists = catalog.some((item) => item.id === nextCourse.id);
       const nextCatalog = exists ? catalog.map((item) => item.id === nextCourse.id ? nextCourse : item) : [nextCourse, ...catalog];
       setCourse(nextCourse);

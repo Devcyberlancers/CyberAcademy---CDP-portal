@@ -2781,11 +2781,11 @@ function toDateKey(date: Date) {
 }
 
 function formatDate(date: Date) {
-  return date.toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric" });
+  return date.toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Asia/Kolkata" });
 }
 
 function formatTime(date: Date) {
-  return date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+  return date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" });
 }
 
 function activityColor(count: number) {

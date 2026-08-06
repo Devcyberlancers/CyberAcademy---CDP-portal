@@ -78,7 +78,7 @@ export default function JobsPage() {
         {error ? <div className="rounded-lg border border-red-200 bg-red-50 px-5 py-4 text-sm font-bold text-red-700">{error}</div> : null}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-600">
-            <Clock3 size={17} /><span>{now.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "medium" })}</span>
+            <Clock3 size={17} /><span>{now.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "medium", timeZone: "Asia/Kolkata" }) + " IST"}</span>
             {lastUpdated ? <span className="text-slate-400">· refreshed {relativeTime(lastUpdated, now)}</span> : null}
           </div>
           <div className="flex gap-3">
