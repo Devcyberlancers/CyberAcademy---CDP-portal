@@ -36,6 +36,7 @@ export function writeJobApplication(record: JobApplicationRecord) {
   current[String(record.jobId)] = record;
   window.localStorage.setItem(jobApplicationStorageKey, JSON.stringify(current));
   const student = readStudentAccount();
+  markStudentPortalUpdated(student.email, record.updatedAt);
   if (student.email) {
     void fetch(`${apiBaseUrl}/api/jobs/${record.jobId}/application-status`, {
       method: "POST",
@@ -105,4 +106,4 @@ export function pendingJobApplications() {
   window.localStorage.setItem(jobApplicationStorageKey, JSON.stringify(current));
   return pending;
 }
-import { readStudentAccount } from "@/lib/student-account";
+import { markStudentPortalUpdated, readStudentAccount } from "@/lib/student-account";

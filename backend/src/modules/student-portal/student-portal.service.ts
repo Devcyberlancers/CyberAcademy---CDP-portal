@@ -444,12 +444,15 @@ export class StudentPortalService {
     const user = await this.prisma.users.findUnique({ where: { email }, include: { students: true } });
     if (!user) throw new NotFoundException('Student account not found');
     const student = user.students[0];
-    const [courses, assignments, attempts, availableJobs, applied] = await Promise.all([
+    const normalizedEmail = email.toLowerCase();
+    const [courses, assignments, attempts, availableJobs, applied, profile, courseProgress] = await Promise.all([
       this.prisma.courses.findMany({ where: { status: { not: 'deleted' } } }),
       this.prisma.assignment_security_settings.findMany({ where: { published: true, active: true, enabled: true } }),
       this.prisma.assignment_attempts.findMany({ where: { student_email: email }, orderBy: [{ started_at: 'desc' }, { id: 'desc' }] }),
       this.prisma.jobs.count(),
       student ? this.prisma.applications.count({ where: { student_id: student.id, status: 'applied' } }) : 0,
+      this.prisma.student_profiles.findUnique({ where: { email: normalizedEmail }, select: { updated_at: true } }),
+      this.prisma.admin_snapshots.findMany({ where: { key: { endsWith: `:${normalizedEmail}` } }, select: { updated_at: true } }),
     ]);
     const latest = new Map<string, (typeof attempts)[number]>();
     attempts.forEach((row) => { if (!latest.has(row.assignment_id)) latest.set(row.assignment_id, row); });
@@ -464,7 +467,8 @@ export class StudentPortalService {
     const submitted = attempts.filter((row) => ['completed', 'auto_submitted', 'terminated'].includes(row.status));
     const activity = [
       ...attempts.map((row) => row.ended_at ?? row.started_at),
-      ...courses.map((row) => row.updated_at),
+      ...courseProgress.map((row) => row.updated_at),
+      ...(profile?.updated_at ? [profile.updated_at] : []),
     ].sort((a, b) => b.getTime() - a.getTime())[0];
     return {
       courses: {

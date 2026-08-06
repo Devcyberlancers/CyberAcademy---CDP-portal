@@ -41,6 +41,15 @@ export type StudentAccount = {
 export const studentAccountStorageKey = "cyber-academy-student-account";
 const authTokenStorageKey = "cyber-academy-auth-token";
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+export const studentPortalUpdatedEvent = "cyber-academy-portal-updated";
+
+export function markStudentPortalUpdated(email?: string, updatedAt = new Date().toISOString()) {
+  if (typeof window === "undefined") return;
+  const studentEmail = (email || readStudentAccount().email).trim().toLowerCase();
+  if (!studentEmail) return;
+  window.localStorage.setItem(`cyber-academy-last-updated:${studentEmail}`, updatedAt);
+  window.dispatchEvent(new CustomEvent(studentPortalUpdatedEvent, { detail: { email: studentEmail, updatedAt } }));
+}
 
 export const defaultStudentAccount: StudentAccount = {
   fullName: studentProfile.fullName,
@@ -143,6 +152,7 @@ export async function persistStudentProfile(account: StudentAccount): Promise<St
   }
   const saved = fromApiProfile(await response.json());
   saveStudentAccount(saved);
+  markStudentPortalUpdated(saved.email, saved.updatedAt || new Date().toISOString());
   return saved;
 }
 

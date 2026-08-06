@@ -10,6 +10,7 @@ import {
   defaultStudentAccount,
   fetchStudentProfile,
   readStudentAccount,
+  studentPortalUpdatedEvent,
   type StudentAccount
 } from "@/lib/student-account";
 import {
@@ -460,11 +461,12 @@ function DashboardView({
   const { activity, lastUpdatedAt } = useDailyActivity(student.email, student.status);
   const [statistics, setStatistics] = useState<StudentStatistics>(emptyStudentStatistics);
   const [statisticsLoading, setStatisticsLoading] = useState(true);
-  const lastUpdatedDate = statistics.last_activity
-    ? new Date(statistics.last_activity)
-    : lastUpdatedAt
-      ? new Date(lastUpdatedAt)
-      : null;
+  const lastUpdatedDate = [student.updatedAt, statistics.last_activity, lastUpdatedAt].reduce<Date | null>((latest, value) => {
+    if (!value) return latest;
+    const candidate = new Date(value);
+    if (Number.isNaN(candidate.getTime())) return latest;
+    return !latest || candidate.getTime() > latest.getTime() ? candidate : latest;
+  }, null);
   const [bannerVariant, setBannerVariant] = useState<(typeof dashboardBannerVariants)[number]>("campus");
 
   useEffect(() => {
@@ -479,20 +481,27 @@ function DashboardView({
       return;
     }
     const controller = new AbortController();
-    void fetch(new URL("/api/student/statistics", apiBaseUrl).toString(), {
-      cache: "no-store",
-      headers: { Authorization: `Bearer ${token}` },
-      signal: controller.signal
-    })
-      .then(async (response) => {
+    const loadStatistics = async () => {
+      try {
+        const response = await fetch(new URL("/api/student/statistics", apiBaseUrl).toString(), {
+          cache: "no-store",
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal
+        });
         if (!response.ok) throw new Error("Statistics could not be loaded");
         setStatistics(await response.json() as StudentStatistics);
-      })
-      .catch((error) => {
+      } catch (error) {
         if ((error as Error).name !== "AbortError") setStatistics(emptyStudentStatistics);
-      })
-      .finally(() => setStatisticsLoading(false));
-    return () => controller.abort();
+      } finally {
+        setStatisticsLoading(false);
+      }
+    };
+    void loadStatistics();
+    const interval = window.setInterval(() => void loadStatistics(), 30_000);
+    return () => {
+      window.clearInterval(interval);
+      controller.abort();
+    };
   }, []);
 
   const answeredPercent = statistics.assessments.questions_total
@@ -2744,6 +2753,23 @@ function useDailyActivity(studentEmail: string, profileStatus?: string) {
     setActivity(next);
     setLastUpdatedAt(storedUpdatedAt || updatedAt);
   }, [profileStatus, studentEmail]);
+
+  useEffect(() => {
+    const cleanEmail = studentEmail.trim().toLowerCase();
+    if (!cleanEmail) return;
+    const scopedUpdatedKey = `${lastUpdatedStorageKey}:${cleanEmail}`;
+    const refreshUpdatedAt = (event?: Event) => {
+      const detail = event instanceof CustomEvent ? event.detail as { email?: string; updatedAt?: string } : undefined;
+      if (detail?.email && detail.email !== cleanEmail) return;
+      setLastUpdatedAt(detail?.updatedAt || window.localStorage.getItem(scopedUpdatedKey) || "");
+    };
+    window.addEventListener(studentPortalUpdatedEvent, refreshUpdatedAt);
+    window.addEventListener("storage", refreshUpdatedAt);
+    return () => {
+      window.removeEventListener(studentPortalUpdatedEvent, refreshUpdatedAt);
+      window.removeEventListener("storage", refreshUpdatedAt);
+    };
+  }, [studentEmail]);
 
   return { activity, lastUpdatedAt };
 }
