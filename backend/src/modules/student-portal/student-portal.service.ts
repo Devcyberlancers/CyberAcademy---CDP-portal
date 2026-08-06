@@ -192,7 +192,7 @@ export class StudentPortalService {
     const blankable = ['full_name', 'first_name', 'cyberlancers_id', 'registration_number', 'phone', 'gender', 'date_of_birth', 'tag', 'batch', 'course', 'college', 'department'];
     const result = { ...profile };
     if (incomplete) blankable.forEach((key) => { result[key] = ''; });
-    delete result.updated_at;
+    result.updated_at = profile.updated_at instanceof Date ? profile.updated_at.toISOString() : String(profile.updated_at || "");
     delete result.personal_email;
     return result;
   }

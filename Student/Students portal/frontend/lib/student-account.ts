@@ -35,6 +35,7 @@ export type StudentAccount = {
   portfolioUrl?: string;
   education?: StudentEducation[];
   mentorName?: string;
+  updatedAt?: string;
 };
 
 export const studentAccountStorageKey = "cyber-academy-student-account";
@@ -193,7 +194,8 @@ function fromApiProfile(profile: Record<string, string | number | null>): Studen
     portfolioUrl: String(profile.portfolio_url || ""),
     education: parseEducation(profile.education_json),
     mentorName: String(profile.mentor_name || ""),
-    photoDataUrl: profile.photo_data_url ? String(profile.photo_data_url) : undefined
+    photoDataUrl: profile.photo_data_url ? String(profile.photo_data_url) : undefined,
+    updatedAt: profile.updated_at ? String(profile.updated_at) : undefined
   };
 }
 

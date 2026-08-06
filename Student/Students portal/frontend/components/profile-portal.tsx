@@ -11,7 +11,8 @@ import {
   persistStudentProfile,
   readStudentAccount,
   type StudentAccount,
-  type StudentEducation
+  type StudentEducation,
+  isStudentEmail
 } from "@/lib/student-account";
 
 const tabs = ["Edit Profile", "Academic Information", "Additional Information", "Resume", "Rewards", "Mentor Information", "Account Settings"] as const;
@@ -63,6 +64,7 @@ function ProfileView({ student, onStudentChange }: { student: StudentAccount; on
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [emailError, setEmailError] = useState("");
   const [photoSource, setPhotoSource] = useState("");
   const [photoCrop, setPhotoCrop] = useState({ x: 0, y: 0, size: 0.72 });
   const [isEditingPhoto, setIsEditingPhoto] = useState(false);
@@ -215,7 +217,7 @@ function ProfileView({ student, onStudentChange }: { student: StudentAccount; on
             {photoSource && <><button type="button" onClick={() => setIsEditingPhoto(true)} className="mt-3 inline-flex items-center gap-2 text-xs font-semibold text-[#3155ff]"><Edit3 size={14} />Edit photo</button>{isEditingPhoto && <PhotoCropEditor source={photoSource} crop={photoCrop} onCropChange={setPhotoCrop} onChoosePhoto={() => photoInputRef.current?.click()} onRemovePhoto={() => { setDraft((current) => ({ ...current, photoDataUrl: "" })); setPhotoSource(""); setIsEditingPhoto(false); setSaved(false); }} onApply={() => { void applyPhotoAdjustment(); setIsEditingPhoto(false); }} onCancel={() => setIsEditingPhoto(false)} />}</>}
 
             <h1 className="mt-6 text-2xl font-bold text-[#07142f]">{draft.fullName || "Student Profile"}</h1>
-            <p className="mt-2 text-lg font-semibold text-[#43b92f]">{approvalLabel(draft.status)}</p>
+            <p className="mt-2 text-lg font-semibold text-[#43b92f]">{approvalLabel(draft.status)}</p>{draft.updatedAt && <p className="mt-2 text-xs font-medium text-[#6c7280]">Last updated {new Date(draft.updatedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" })} IST</p>}
             <div className="mx-auto mt-6 h-1 w-16 rounded-full bg-[#d7d7d7]" />
 
             <div className="mt-8 text-left">
