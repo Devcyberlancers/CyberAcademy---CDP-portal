@@ -150,7 +150,7 @@ SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=your-authorized-cyberlancers-account
 SMTP_PASSWORD=your-smtp-app-password
-SMTP_FROM_EMAIL=admin@cyberlancers.in
+SMTP_FROM_EMAIL=info@cyberlancers.in
 SMTP_FROM_NAME=Cyber Academy
 SMTP_TLS=true
 STUDENT_FRONTEND_URL=http://localhost:3000
@@ -305,7 +305,7 @@ job refresh status/logs and use an allowed external worker for that integration.
 The visible sender is configured as:
 
 ```text
-Cyber Academy <admin@cyberlancers.in>
+Cyber Academy <info@cyberlancers.in>
 ```
 
 The SMTP account must be authorized to send as that address. Personal Gmail SMTP can replace the visible sender with the authenticated Gmail account. Use the Cyber Lancers mail provider, Google Workspace account, or a verified sender alias.

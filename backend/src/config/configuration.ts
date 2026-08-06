@@ -59,9 +59,8 @@ export function validateEnvironment(config: Record<string, unknown>) {
       for (const key of ['SMTP_USER', 'SMTP_PASSWORD', 'SMTP_FROM_EMAIL']) {
         if (!String(config[key] ?? '').trim()) throw new Error(`${key} is required when SMTP_HOST is configured.`);
       }
-      const senderDomain = String(config.STUDENT_EMAIL_DOMAIN ?? 'cyberlancers.in').replace(/^@/, '').toLowerCase();
-      if (!String(config.SMTP_FROM_EMAIL).toLowerCase().endsWith(`@${senderDomain}`)) {
-        throw new Error(`SMTP_FROM_EMAIL must use the @${senderDomain} domain.`);
+      if (String(config.SMTP_FROM_EMAIL).trim().toLowerCase() !== 'info@cyberlancers.in') {
+        throw new Error('SMTP_FROM_EMAIL must be info@cyberlancers.in.');
       }
     }
   }

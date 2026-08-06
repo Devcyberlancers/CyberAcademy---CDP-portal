@@ -25,9 +25,10 @@ export class MailService {
     const smtp = this.config.get<Record<string, unknown>>('smtp') ?? {};
     return {
       name: String(smtp.fromName ?? 'Cyber Academy'),
-      address: String(smtp.fromEmail || smtp.user || ''),
+      address: 'info@cyberlancers.in',
     };
   }
+
 
   private template(title: string, content: string) {
     return `<!doctype html><html><body style="margin:0;background:#f5f7fb;font-family:Arial,Helvetica,sans-serif;color:#07142f"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:32px 12px"><tr><td align="center"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#fff;border-radius:18px;border:1px solid #e3e8f2;overflow:hidden"><tr><td style="background:#102a8b;color:#fff;padding:24px 28px"><h1 style="margin:0;font-size:24px">${title}</h1></td></tr><tr><td style="padding:28px;font-size:15px;line-height:24px">${content}</td></tr><tr><td style="padding:18px 28px;background:#f8fafc;color:#64748b;font-size:12px">This email was sent by Cyber Academy.</td></tr></table></td></tr></table></body></html>`;
@@ -44,7 +45,7 @@ export class MailService {
     try {
       await this.transporter.sendMail({
         from: this.sender(),
-        to,
+        to: to.trim().toLowerCase(),
         subject,
         text,
         html: this.template(subject, htmlContent),
