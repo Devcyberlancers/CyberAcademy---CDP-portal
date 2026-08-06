@@ -168,6 +168,12 @@ function ProfileView({ student, onStudentChange }: { student: StudentAccount; on
   }
 
   async function saveProfile() {
+    const missing = profileCompletionIssue(draft);
+    if (missing) {
+      setActiveTab(missing.tab);
+      setSaveError(missing.message);
+      return;
+    }
     setIsSaving(true);
     setSaved(false);
     setSaveError("");
@@ -224,20 +230,20 @@ function ProfileView({ student, onStudentChange }: { student: StudentAccount; on
                 </button>
               </div>
               <InfoLine label="Name" value={draft.fullName} />
-              <InfoLine label="Registration Number" value={draft.registrationNumber} />
-              <InfoLine label="Email" value={draft.email} />
-              <InfoLine label="Phone" value={draft.phone} />
-              <InfoLine label="Gender" value={draft.gender} />
-              <InfoLine label="Date of Birth" value={draft.dateOfBirth} />
+              <InfoLine label="Registration Number *" value={draft.registrationNumber} />
+              <InfoLine label="Email *" value={draft.email} />
+              <InfoLine label="Phone *" value={draft.phone} />
+              <InfoLine label="Gender *" value={draft.gender} />
+              <InfoLine label="Date of Birth *" value={draft.dateOfBirth} />
               <InfoLine label="Tag" value={draft.tag} />
             </div>
           </Card>
 
           <div className="pt-5">
             <div className="grid gap-3 md:grid-cols-3">
-              <SummaryPill icon={<ChevronLeft size={18} />} label="Batch" value={draft.batch} />
-              <SummaryPill icon={<IdCard size={18} />} label="Department" value={draft.department} />
-              <SummaryPill icon={<IdCard size={18} />} label="College" value={draft.college} />
+              <SummaryPill icon={<ChevronLeft size={18} />} label="Batch *" value={draft.batch} />
+              <SummaryPill icon={<IdCard size={18} />} label="Department *" value={draft.department} />
+              <SummaryPill icon={<IdCard size={18} />} label="College *" value={draft.college} />
             </div>
 
             <div className="mt-8 flex flex-wrap gap-3">
@@ -257,38 +263,38 @@ function ProfileView({ student, onStudentChange }: { student: StudentAccount; on
               <h2 className="mb-6 text-xl font-bold">{activeTab}</h2>
               {activeTab === "Edit Profile" && (
                 <FormGrid>
-                  <TextField label="Full Name" value={draft.fullName} onChange={(value) => setField("fullName", value)} />
+                  <TextField label="Full Name *" value={draft.fullName} onChange={(value) => setField("fullName", value)} />
                   <TextField label="Cyberlancers ID" value={draft.cyberlancersId} onChange={(value) => setField("cyberlancersId", value)} />
-                  <TextField label="Registration Number" value={draft.registrationNumber} onChange={(value) => setField("registrationNumber", value)} />
-                  <TextField label="Email" value={draft.email} onChange={(value) => setField("email", value)} />
-                  <TextField label="Phone" value={draft.phone} onChange={(value) => setField("phone", value)} />
-                  <SelectField label="Gender" value={draft.gender} onChange={(value) => setField("gender", value)} options={["Female", "Male", "Non-binary", "Prefer not to say"]} />
-                  <TextField label="Date of Birth" type="date" value={draft.dateOfBirth} onChange={(value) => setField("dateOfBirth", value)} />
-                  <TextField label="Batch" value={draft.batch} onChange={(value) => setField("batch", value)} />
-                  <TextField label="College" value={draft.college} onChange={(value) => setField("college", value)} />
-                  <TextField label="Department" value={draft.department} onChange={(value) => setField("department", value)} />
+                  <TextField label="Registration Number *" value={draft.registrationNumber} onChange={(value) => setField("registrationNumber", value)} />
+                  <TextField label="Email *" value={draft.email} onChange={(value) => setField("email", value)} />
+                  <TextField label="Phone *" value={draft.phone} onChange={(value) => setField("phone", value)} />
+                  <SelectField label="Gender *" value={draft.gender} onChange={(value) => setField("gender", value)} options={["Female", "Male", "Non-binary", "Prefer not to say"]} />
+                  <TextField label="Date of Birth *" type="date" value={draft.dateOfBirth} onChange={(value) => setField("dateOfBirth", value)} />
+                  <TextField label="Batch *" value={draft.batch} onChange={(value) => setField("batch", value)} />
+                  <TextField label="College *" value={draft.college} onChange={(value) => setField("college", value)} />
+                  <TextField label="Department *" value={draft.department} onChange={(value) => setField("department", value)} />
                 </FormGrid>
               )}
 
               {activeTab === "Academic Information" && (
                 <FormGrid>
-                  <TextField label="Batch" value={draft.batch} onChange={(value) => setField("batch", value)} />
-                  <TextField label="Department" value={draft.department} onChange={(value) => setField("department", value)} />
-                  <TextField label="College" value={draft.college} onChange={(value) => setField("college", value)} />
-                  <TextField label="Registration Number" value={draft.registrationNumber} onChange={(value) => setField("registrationNumber", value)} />
+                  <TextField label="Batch *" value={draft.batch} onChange={(value) => setField("batch", value)} />
+                  <TextField label="Department *" value={draft.department} onChange={(value) => setField("department", value)} />
+                  <TextField label="College *" value={draft.college} onChange={(value) => setField("college", value)} />
+                  <TextField label="Registration Number *" value={draft.registrationNumber} onChange={(value) => setField("registrationNumber", value)} />
                 </FormGrid>
               )}
 
               {activeTab === "Additional Information" && (
                 <div className="grid gap-6">
-                  <EducationCard title="Class 10" record={educationFor("Class 10")} onChange={(patch) => updateEducation("Class 10", patch)} onUpload={(file) => updateMarkscard("Class 10", file)} onRemove={() => removeMarkscard("Class 10")} />
-                  <SelectField label="Higher-secondary qualification" value={higherSecondary?.level || ""} onChange={(value) => {
+                  <EducationCard required title="Class 10" record={educationFor("Class 10")} onChange={(patch) => updateEducation("Class 10", patch)} onUpload={(file) => updateMarkscard("Class 10", file)} onRemove={() => removeMarkscard("Class 10")} />
+                  <SelectField label="Higher-secondary qualification *" value={higherSecondary?.level || ""} onChange={(value) => {
                     setDraft((current) => ({ ...current, education: (current.education || []).filter((item) => item.level !== "PUC" && item.level !== "Diploma").concat(value ? [{ level: value as "PUC" | "Diploma" }] : []) }));
                     setSaved(false);
                   }} options={["PUC", "Diploma"]} emptyLabel="Not added" />
-                  {draft.education?.some((item) => item.level === "PUC") && <EducationCard title="PUC" record={educationFor("PUC")} onChange={(patch) => updateEducation("PUC", patch)} onUpload={(file) => updateMarkscard("PUC", file)} onRemove={() => removeMarkscard("PUC")} />}
-                  {draft.education?.some((item) => item.level === "Diploma") && <EducationCard title="Diploma" record={educationFor("Diploma")} onChange={(patch) => updateEducation("Diploma", patch)} onUpload={(file) => updateMarkscard("Diploma", file)} onRemove={() => removeMarkscard("Diploma")} />}
-                  <EducationCard title="Degree" record={educationFor("Degree")} onChange={(patch) => updateEducation("Degree", patch)} onUpload={(file) => updateMarkscard("Degree", file)} onRemove={() => removeMarkscard("Degree")} degree />
+                  {draft.education?.some((item) => item.level === "PUC") && <EducationCard required title="PUC" record={educationFor("PUC")} onChange={(patch) => updateEducation("PUC", patch)} onUpload={(file) => updateMarkscard("PUC", file)} onRemove={() => removeMarkscard("PUC")} />}
+                  {draft.education?.some((item) => item.level === "Diploma") && <EducationCard required title="Diploma" record={educationFor("Diploma")} onChange={(patch) => updateEducation("Diploma", patch)} onUpload={(file) => updateMarkscard("Diploma", file)} onRemove={() => removeMarkscard("Diploma")} />}
+                  <EducationCard required title="Degree" record={educationFor("Degree")} onChange={(patch) => updateEducation("Degree", patch)} onUpload={(file) => updateMarkscard("Degree", file)} onRemove={() => removeMarkscard("Degree")} degree />
                   <EducationCard title="Master's degree" record={educationFor("Masters")} onChange={(patch) => updateEducation("Masters", patch)} onUpload={(file) => updateMarkscard("Masters", file)} onRemove={() => removeMarkscard("Masters")} masters />
                   <EducationCard title="PhD (optional)" record={educationFor("PhD")} onChange={(patch) => updateEducation("PhD", patch)} onUpload={(file) => updateMarkscard("PhD", file)} onRemove={() => removeMarkscard("PhD")} />
                 </div>
@@ -334,7 +340,7 @@ function ProfileView({ student, onStudentChange }: { student: StudentAccount; on
 
               {activeTab === "Account Settings" && (
                 <FormGrid>
-                  <TextField label="Email" value={draft.email} onChange={(value) => setField("email", value)} />
+                  <TextField label="Email *" value={draft.email} onChange={(value) => setField("email", value)} />
                   <ReadOnlyField label="Approval Status" value={approvalLabel(draft.status)} />
                 </FormGrid>
               )}
@@ -353,6 +359,19 @@ function ProfileView({ student, onStudentChange }: { student: StudentAccount; on
   );
 }
 
+function profileCompletionIssue(student: StudentAccount): { tab: ProfileTab; message: string } | null {
+  const core: Array<[keyof StudentAccount, string, ProfileTab]> = [["fullName", "Full name", "Edit Profile"], ["registrationNumber", "Registration Number", "Edit Profile"], ["email", "Email", "Edit Profile"], ["phone", "Phone", "Edit Profile"], ["gender", "Gender", "Edit Profile"], ["dateOfBirth", "Date of Birth", "Edit Profile"], ["batch", "Batch", "Academic Information"], ["college", "College", "Academic Information"], ["department", "Department", "Academic Information"]];
+  for (const [field, label, tab] of core) if (!String(student[field] || "").trim()) return { tab, message: `${label} is required. Complete all fields marked * before saving.` };
+  const education = student.education || [];
+  const complete = (level: StudentEducation["level"]) => {
+    const item = education.find((record) => record.level === level);
+    return Boolean(item?.institution?.trim() && item?.yearFrom?.trim() && item?.yearTo?.trim() && item?.score?.trim() && item?.markscardDataUrl?.trim());
+  };
+  if (!complete("Class 10")) return { tab: "Additional Information", message: "Complete Class 10 details and upload its markscard before saving." };
+  if (!complete("PUC") && !complete("Diploma")) return { tab: "Additional Information", message: "Add complete PUC or Diploma details, including the markscard, before saving." };
+  if (!complete("Degree")) return { tab: "Additional Information", message: "Complete Degree details and upload its markscard before saving." };
+  return null;
+}
 const maxProfilePhotoDimension = 512;
 const maxProfilePhotoDataUrlLength = 55_000;
 
@@ -467,12 +486,12 @@ function ReadOnlyField({ label, value }: { label: string; value?: string }) {
   return <div className="grid gap-2 text-sm font-semibold text-[#343946]"><span>{label}</span><span className="flex h-11 items-center rounded-md border border-[#dbe0e9] bg-[#f8faff] px-3 text-sm text-[#5a5f68]">{value || "Waiting for profile details"}</span></div>;
 }
 
-function EducationCard({ title, record, onChange, onUpload, onRemove, degree = false, masters = false }: { title: string; record: StudentEducation; onChange: (patch: Partial<StudentEducation>) => void; onUpload: (file: File | undefined) => void; onRemove: () => void; degree?: boolean; masters?: boolean }) {
+function EducationCard({ title, record, onChange, onUpload, onRemove, degree = false, masters = false, required = false }: { title: string; record: StudentEducation; onChange: (patch: Partial<StudentEducation>) => void; onUpload: (file: File | undefined) => void; onRemove: () => void; degree?: boolean; masters?: boolean; required?: boolean }) {
   const degreeOptions = masters ? ["M.E.", "M.Tech", "MCA", "MBA", "M.Sc", "M.Com", "MA", "LLM", "PGDM", "Other"] : ["B.E.", "B.Tech", "B.Sc", "BCA", "B.Com", "BA", "BBA", "BBM", "Other"];
   const usingCustomProgramme = (degree || masters) && record.programme === "Other";
   return (
     <section className="rounded-lg border border-[#e1e5ee] bg-[#fbfcff] p-5">
-      <h3 className="mb-4 text-base font-bold text-[#07142f]">{title} details</h3>
+      <h3 className="mb-4 text-base font-bold text-[#07142f]">{title} details{required ? " *" : ""}</h3>
       <FormGrid>
         <TextField label="School / Institution" value={record.institution} onChange={(value) => onChange({ institution: value })} />
         <TextField label={degree ? "University" : "Board"} value={record.boardOrUniversity} onChange={(value) => onChange({ boardOrUniversity: value })} />
