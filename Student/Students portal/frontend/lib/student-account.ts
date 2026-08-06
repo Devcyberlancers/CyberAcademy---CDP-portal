@@ -1,7 +1,7 @@
 import { STUDENT_EMAIL_DOMAIN, studentProfile } from "@/lib/portal-config";
 
 export type StudentEducation = {
-  level: "Class 10" | "PUC" | "Diploma" | "Degree";
+  level: "Class 10" | "PUC" | "Diploma" | "Degree" | "Masters" | "PhD";
   institution?: string;
   boardOrUniversity?: string;
   programme?: string;

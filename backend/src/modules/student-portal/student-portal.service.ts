@@ -205,7 +205,14 @@ export class StudentPortalService {
 
   async saveProfile(dto: StudentProfileDto) {
     const email = dto.email.toLowerCase();
-    const required = [dto.full_name, dto.registration_number, dto.phone, dto.department];
+    let education: Array<Record<string, unknown>> = [];
+    try { const parsed = JSON.parse(dto.education_json || '[]'); education = Array.isArray(parsed) ? parsed : []; } catch { education = []; }
+    const educationComplete = (level: string) => {
+      const record = education.find((item) => item.level === level);
+      return Boolean(record && String(record.institution || '').trim() && String(record.yearFrom || '').trim() && String(record.yearTo || '').trim() && String(record.score || '').trim() && String(record.markscardDataUrl || '').trim());
+    };
+    const higherSecondaryComplete = educationComplete('PUC') || educationComplete('Diploma');
+    const required = [dto.full_name, dto.registration_number, dto.phone, dto.gender, dto.date_of_birth, dto.batch, dto.college, dto.department];
     const firstName = dto.first_name || dto.full_name.trim().split(/\s+/)[0] || '';
     const profile = await this.prisma.$transaction(async (tx) => {
       const existing = await tx.student_profiles.findUnique({ where: { email }, select: { status: true } });
@@ -411,15 +418,14 @@ export class StudentPortalService {
   }
 
   async portalAccess(email: string) {
+    const profile = await this.prisma.student_profiles.findUnique({ where: { email: email.toLowerCase() }, select: { status: true } });
+    if (profile?.status !== 'Approved') {
+      return { courses_enabled: false, assessments_enabled: false, jobs_enabled: false, profile_status: profile?.status ?? 'Waiting for Student', approval_required: true };
+    }
     const row = await this.prisma.portal_access_settings.findUnique({ where: { scope_key: email.toLowerCase() } })
       ?? await this.prisma.portal_access_settings.findUnique({ where: { scope_key: 'global' } });
-    return {
-      courses_enabled: Boolean(row?.courses_enabled),
-      assessments_enabled: Boolean(row?.assessments_enabled),
-      jobs_enabled: Boolean(row?.jobs_enabled),
-    };
+    return { courses_enabled: Boolean(row?.courses_enabled), assessments_enabled: Boolean(row?.assessments_enabled), jobs_enabled: Boolean(row?.jobs_enabled), profile_status: profile.status, approval_required: false };
   }
-
   async getPreference(email: string) {
     const row = await this.prisma.student_job_search_preferences.findUnique({ where: { student_email: email.toLowerCase() } });
     return { search_time_ist: row?.search_time_ist ?? '09:00', active: row?.active ?? false, last_run_on: row?.last_run_on ?? null };

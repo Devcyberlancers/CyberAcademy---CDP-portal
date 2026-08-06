@@ -64,13 +64,13 @@ function ProfileView({ student, onStudentChange }: { student: StudentAccount; on
   const [saveError, setSaveError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [photoSource, setPhotoSource] = useState("");
-  const [photoCrop, setPhotoCrop] = useState({ x: 0, y: 0 });
+  const [photoCrop, setPhotoCrop] = useState({ x: 0, y: 0, size: 0.72 });
   const [isEditingPhoto, setIsEditingPhoto] = useState(false);
 
   useEffect(() => {
     setDraft(student);
     setPhotoSource(student.photoDataUrl || "");
-    setPhotoCrop({ x: 0, y: 0 });
+    setPhotoCrop({ x: 0, y: 0, size: 0.72 });
     setIsEditingPhoto(false);
   }, [student]);
 
@@ -108,9 +108,9 @@ function ProfileView({ student, onStudentChange }: { student: StudentAccount; on
     }
     try {
       const source = await readFileAsDataUrl(file);
-      const photoDataUrl = await prepareProfilePhoto(source, 0, 0);
+      const photoDataUrl = await prepareProfilePhoto(source, 0, 0, 0.72);
       setPhotoSource(source);
-      setPhotoCrop({ x: 0, y: 0 });
+      setPhotoCrop({ x: 0, y: 0, size: 0.72 });
       setIsEditingPhoto(true);
       setDraft((current) => ({ ...current, photoDataUrl }));
     } catch (error) {
@@ -138,7 +138,7 @@ function ProfileView({ student, onStudentChange }: { student: StudentAccount; on
     if (!photoSource) return;
     try {
       setDraft((current) => ({ ...current, photoDataUrl: current.photoDataUrl }));
-      const photoDataUrl = await prepareProfilePhoto(photoSource, photoCrop.x, photoCrop.y);
+      const photoDataUrl = await prepareProfilePhoto(photoSource, photoCrop.x, photoCrop.y, photoCrop.size);
       setDraft((current) => ({ ...current, photoDataUrl }));
       setSaved(false);
     } catch (error) {
@@ -289,6 +289,8 @@ function ProfileView({ student, onStudentChange }: { student: StudentAccount; on
                   {draft.education?.some((item) => item.level === "PUC") && <EducationCard title="PUC" record={educationFor("PUC")} onChange={(patch) => updateEducation("PUC", patch)} onUpload={(file) => updateMarkscard("PUC", file)} onRemove={() => removeMarkscard("PUC")} />}
                   {draft.education?.some((item) => item.level === "Diploma") && <EducationCard title="Diploma" record={educationFor("Diploma")} onChange={(patch) => updateEducation("Diploma", patch)} onUpload={(file) => updateMarkscard("Diploma", file)} onRemove={() => removeMarkscard("Diploma")} />}
                   <EducationCard title="Degree" record={educationFor("Degree")} onChange={(patch) => updateEducation("Degree", patch)} onUpload={(file) => updateMarkscard("Degree", file)} onRemove={() => removeMarkscard("Degree")} degree />
+                  <EducationCard title="Master's degree" record={educationFor("Masters")} onChange={(patch) => updateEducation("Masters", patch)} onUpload={(file) => updateMarkscard("Masters", file)} onRemove={() => removeMarkscard("Masters")} masters />
+                  <EducationCard title="PhD (optional)" record={educationFor("PhD")} onChange={(patch) => updateEducation("PhD", patch)} onUpload={(file) => updateMarkscard("PhD", file)} onRemove={() => removeMarkscard("PhD")} />
                 </div>
               )}
 
@@ -354,9 +356,9 @@ function ProfileView({ student, onStudentChange }: { student: StudentAccount; on
 const maxProfilePhotoDimension = 512;
 const maxProfilePhotoDataUrlLength = 55_000;
 
-async function prepareProfilePhoto(source: string, cropX: number, cropY: number): Promise<string> {
+async function prepareProfilePhoto(source: string, cropX: number, cropY: number, cropFraction: number): Promise<string> {
   const image = await loadImage(source);
-  const cropSize = Math.min(image.naturalWidth, image.naturalHeight);
+  const cropSize = Math.min(image.naturalWidth, image.naturalHeight) * Math.max(0.45, Math.min(0.9, cropFraction));
   const xPadding = Math.max(0, (image.naturalWidth - cropSize) / 2);
   const yPadding = Math.max(0, (image.naturalHeight - cropSize) / 2);
   const canvas = document.createElement("canvas");
@@ -465,16 +467,16 @@ function ReadOnlyField({ label, value }: { label: string; value?: string }) {
   return <div className="grid gap-2 text-sm font-semibold text-[#343946]"><span>{label}</span><span className="flex h-11 items-center rounded-md border border-[#dbe0e9] bg-[#f8faff] px-3 text-sm text-[#5a5f68]">{value || "Waiting for profile details"}</span></div>;
 }
 
-function EducationCard({ title, record, onChange, onUpload, onRemove, degree = false }: { title: string; record: StudentEducation; onChange: (patch: Partial<StudentEducation>) => void; onUpload: (file: File | undefined) => void; onRemove: () => void; degree?: boolean }) {
-  const degreeOptions = ["B.E.", "B.Tech", "B.Sc", "BCA", "B.Com", "BA", "M.E.", "M.Tech", "MCA", "MBA", "Other"];
-  const usingCustomProgramme = degree && record.programme === "Other";
+function EducationCard({ title, record, onChange, onUpload, onRemove, degree = false, masters = false }: { title: string; record: StudentEducation; onChange: (patch: Partial<StudentEducation>) => void; onUpload: (file: File | undefined) => void; onRemove: () => void; degree?: boolean; masters?: boolean }) {
+  const degreeOptions = masters ? ["M.E.", "M.Tech", "MCA", "MBA", "M.Sc", "M.Com", "MA", "LLM", "PGDM", "Other"] : ["B.E.", "B.Tech", "B.Sc", "BCA", "B.Com", "BA", "BBA", "BBM", "Other"];
+  const usingCustomProgramme = (degree || masters) && record.programme === "Other";
   return (
     <section className="rounded-lg border border-[#e1e5ee] bg-[#fbfcff] p-5">
       <h3 className="mb-4 text-base font-bold text-[#07142f]">{title} details</h3>
       <FormGrid>
         <TextField label="School / Institution" value={record.institution} onChange={(value) => onChange({ institution: value })} />
         <TextField label={degree ? "University" : "Board"} value={record.boardOrUniversity} onChange={(value) => onChange({ boardOrUniversity: value })} />
-        {degree ? <SelectField label="Degree" value={record.programme} onChange={(value) => onChange({ programme: value, customProgramme: value === "Other" ? record.customProgramme : "" })} options={degreeOptions} /> : <TextField label="Stream / Specialisation" value={record.programme} onChange={(value) => onChange({ programme: value })} />}
+        {degree || masters ? <SelectField label={masters ? "Master's degree" : "Degree"} value={record.programme} onChange={(value) => onChange({ programme: value, customProgramme: value === "Other" ? record.customProgramme : "" })} options={degreeOptions} /> : <TextField label="Stream / Specialisation" value={record.programme} onChange={(value) => onChange({ programme: value })} />}
         {usingCustomProgramme && <TextField label="Enter degree" value={record.customProgramme} onChange={(value) => onChange({ customProgramme: value })} />}
         <TextField label="Year from" type="number" value={record.yearFrom} onChange={(value) => onChange({ yearFrom: value })} />
         <TextField label="Year to" type="number" value={record.yearTo} onChange={(value) => onChange({ yearTo: value })} />
@@ -494,15 +496,17 @@ function approvalLabel(status?: string) {
   return "Complete your profile for admin approval";
 }
 
-function PhotoCropEditor({ source, crop, onCropChange, onApply, onCancel }: { source: string; crop: { x: number; y: number }; onCropChange: (crop: { x: number; y: number }) => void; onApply: () => void; onCancel: () => void }) {
-  const drag = useRef<{ x: number; y: number; cropX: number; cropY: number } | null>(null);
+function PhotoCropEditor({ source, crop, onCropChange, onApply, onCancel }: { source: string; crop: { x: number; y: number; size: number }; onCropChange: (crop: { x: number; y: number; size: number }) => void; onApply: () => void; onCancel: () => void }) {
+  const drag = useRef<{ mode: "move" | "resize"; x: number; y: number; crop: { x: number; y: number; size: number } } | null>(null);
   function move(event: React.PointerEvent<HTMLDivElement>) {
     if (!drag.current || !event.currentTarget.parentElement) return;
     const bounds = event.currentTarget.parentElement.getBoundingClientRect();
-    onCropChange({
-      x: Math.max(-1, Math.min(1, drag.current.cropX + (event.clientX - drag.current.x) / (bounds.width * 0.14))),
-      y: Math.max(-1, Math.min(1, drag.current.cropY + (event.clientY - drag.current.y) / (bounds.height * 0.14)))
-    });
+    if (drag.current.mode === "resize") {
+      onCropChange({ ...drag.current.crop, size: Math.max(0.45, Math.min(0.9, drag.current.crop.size + (event.clientX - drag.current.x) / bounds.width)) });
+      return;
+    }
+    const range = Math.max(0.05, (1 - drag.current.crop.size) / 2);
+    onCropChange({ ...drag.current.crop, x: Math.max(-1, Math.min(1, drag.current.crop.x + (event.clientX - drag.current.x) / (bounds.width * range))), y: Math.max(-1, Math.min(1, drag.current.crop.y + (event.clientY - drag.current.y) / (bounds.height * range))) });
   }
-  return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/65 p-4" role="dialog" aria-modal="true" aria-label="Adjust profile photo"><div className="w-full max-w-[560px] rounded-2xl bg-white p-5 shadow-2xl sm:p-6"><div className="mb-4 flex items-center justify-between gap-4"><div><h2 className="text-xl font-bold text-[#07142f]">Adjust profile photo</h2><p className="mt-1 text-sm text-[#5f6573]">Drag the crop grid to choose the part of the photo you want to keep.</p></div><div className="shrink-0 text-center"><div className="mx-auto h-16 w-16 overflow-hidden rounded-full border-4 border-white shadow-md"><img src={source} alt="Profile preview" className="h-full w-full object-cover" style={{ objectPosition: `${50 + crop.x * 50}% ${50 + crop.y * 50}%` }} /></div><span className="mt-1 block text-[11px] font-semibold text-[#5f6573]">Preview</span></div></div><div className="relative mx-auto aspect-square w-full max-w-[460px] overflow-hidden rounded-xl bg-slate-100 shadow-inner"><img src={source} alt="Adjust profile photo" draggable={false} className="h-full w-full select-none object-cover" /><div onPointerDown={(event) => { drag.current = { x: event.clientX, y: event.clientY, cropX: crop.x, cropY: crop.y }; event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={move} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }} className="absolute h-[72%] w-[72%] cursor-grab touch-none border-2 border-white shadow-[0_0_0_999px_rgba(15,23,42,.42)] active:cursor-grabbing" style={{ left: `${50 + crop.x * 14}%`, top: `${50 + crop.y * 14}%`, transform: "translate(-50%, -50%)" }}><div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,transparent_33%,rgba(255,255,255,.85)_33.5%,transparent_34%,transparent_66%,rgba(255,255,255,.85)_66.5%,transparent_67%),linear-gradient(to_bottom,transparent_33%,rgba(255,255,255,.85)_33.5%,transparent_34%,transparent_66%,rgba(255,255,255,.85)_66.5%,transparent_67%)]" /></div></div><div className="mt-5 grid grid-cols-2 gap-3"><button type="button" onClick={onCancel} className="rounded-md border border-[#dbe0e9] px-4 py-3 text-sm font-semibold text-[#5a5f68]">Cancel</button><button type="button" onClick={onApply} className="rounded-md bg-[#3155ff] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#2447f1]">Apply crop</button></div></div></div>;
+  return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/65 p-4" role="dialog" aria-modal="true" aria-label="Adjust profile photo"><div className="w-full max-w-[560px] rounded-2xl bg-white p-5 shadow-2xl sm:p-6"><div className="mb-4 flex items-center justify-between gap-4"><div><h2 className="text-xl font-bold text-[#07142f]">Adjust profile photo</h2><p className="mt-1 text-sm text-[#5f6573]">Drag the grid to move it. Drag its bottom-right handle to resize it.</p></div><div className="shrink-0 text-center"><div className="mx-auto h-16 w-16 overflow-hidden rounded-full border-4 border-white shadow-md"><img src={source} alt="Profile preview" className="h-full w-full object-cover" style={{ objectPosition: `${50 + crop.x * 50}% ${50 + crop.y * 50}%` }} /></div><span className="mt-1 block text-[11px] font-semibold text-[#5f6573]">Preview</span></div></div><div className="relative mx-auto aspect-square w-full max-w-[460px] overflow-hidden rounded-xl bg-slate-100 shadow-inner"><img src={source} alt="Adjust profile photo" draggable={false} className="h-full w-full select-none object-cover" /><div onPointerDown={(event) => { drag.current = { mode: "move", x: event.clientX, y: event.clientY, crop }; event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={move} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }} className="absolute cursor-grab touch-none border-2 border-white shadow-[0_0_0_999px_rgba(15,23,42,.42)] active:cursor-grabbing" style={{ width: `${crop.size * 100}%`, height: `${crop.size * 100}%`, left: `${50 + crop.x * ((1 - crop.size) * 50)}%`, top: `${50 + crop.y * ((1 - crop.size) * 50)}%`, transform: "translate(-50%, -50%)" }}><div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,transparent_33%,rgba(255,255,255,.85)_33.5%,transparent_34%,transparent_66%,rgba(255,255,255,.85)_66.5%,transparent_67%),linear-gradient(to_bottom,transparent_33%,rgba(255,255,255,.85)_33.5%,transparent_34%,transparent_66%,rgba(255,255,255,.85)_66.5%,transparent_67%)]" /><button type="button" aria-label="Resize crop grid" onPointerDown={(event) => { event.stopPropagation(); drag.current = { mode: "resize", x: event.clientX, y: event.clientY, crop }; event.currentTarget.setPointerCapture(event.pointerId); }} className="absolute -bottom-3 -right-3 h-7 w-7 cursor-nwse-resize rounded-full border-2 border-white bg-[#3155ff] shadow" /></div></div><div className="mt-5 grid grid-cols-2 gap-3"><button type="button" onClick={onCancel} className="rounded-md border border-[#dbe0e9] px-4 py-3 text-sm font-semibold text-[#5a5f68]">Cancel</button><button type="button" onClick={onApply} className="rounded-md bg-[#3155ff] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#2447f1]">Apply crop</button></div></div></div>;
 }
