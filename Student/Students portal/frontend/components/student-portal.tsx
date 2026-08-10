@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Calendar, ChevronDown, ClipboardCheck, Filter, IdCard, Loader2, MapPin, RefreshCw, Search, ShieldCheck, Sparkles, TerminalSquare, UserRound } from "lucide-react";
+import { Bookmark, Calendar, ChevronDown, ChevronLeft, ChevronRight, ClipboardCheck, Filter, IdCard, Loader2, MapPin, RefreshCw, Search, ShieldCheck, Sparkles, TerminalSquare, UserRound } from "lucide-react";
 import { DashboardShell, type StudentSection } from "@/components/dashboard-shell";
 import { Card } from "@/components/ui";
 import {
@@ -1788,58 +1788,17 @@ function EndTestConfirmation({ attempt, answers, onCancel, onConfirm }: { attemp
   const total = attempt.questions.length;
   return <div className="fixed inset-0 z-[80] grid place-items-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-label="End Test confirmation"><div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-2xl sm:p-8"><h2 className="text-2xl font-bold text-[#07142f]">End Test</h2><p className="mt-5 text-base text-[#4d5360]">Are you sure you want to submit this test?</p><p className="mt-3 font-semibold text-red-600">By typing END, the entire test will be submitted.</p><div className="mt-5 overflow-hidden rounded-xl border border-[#dfe4f2]"><div className="bg-[#eef2ff] px-4 py-3 text-center font-bold text-[#07142f]">Test Summary</div><dl className="grid grid-cols-[1fr_auto] gap-y-3 p-4 text-sm"><dt>Number of sections</dt><dd className="font-bold">1</dd><dt>Number of questions</dt><dd className="font-bold">{total}</dd><dt>Answered</dt><dd className="font-bold text-emerald-600">{answered}</dd><dt>Saved in server</dt><dd className="font-bold">{answered}</dd><dt>Skipped</dt><dd className="font-bold text-amber-600">{Math.max(0, total - answered)}</dd><dt>Not viewed</dt><dd className="font-bold">{Math.max(0, total - answered)}</dd></dl></div><label className="mt-5 block"><span className="mb-2 block text-sm font-bold text-[#07142f]">Enter “END” to confirm <b className="text-red-600">*</b></span><input autoFocus value={confirmation} onChange={(event) => setConfirmation(event.target.value)} className="h-11 w-full rounded-lg border border-[#cfd6e3] px-3 outline-none focus:border-[#3155ff]" placeholder="END" /></label><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={onCancel} className="rounded-lg border border-[#cfd6e3] px-6 py-2.5 font-semibold text-[#4d5360]">No</button><button type="button" disabled={confirmation.trim().toUpperCase() !== "END"} onClick={onConfirm} className="rounded-lg bg-[#3155ff] px-7 py-2.5 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">Yes, submit</button></div></div></div>;
 }
-function SecureExamRoom({
-  attempt,
-  answers,
-  secondsLeft,
-  onChooseAnswer,
-  onSubmit
-}: {
-  attempt: SecureAttempt;
-  answers: Record<string, string>;
-  secondsLeft: number;
-  onChooseAnswer: (questionId: string, optionId: string) => void;
-  onSubmit: () => void;
-}) {
-  return (
-    <div className="mx-auto max-w-6xl">
-      <div className="sticky top-0 z-20 mb-5 flex flex-col gap-4 rounded-2xl border border-[#dfe4f2] bg-white/95 p-5 shadow-sm backdrop-blur md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-black">{attempt.title}</h1>
-          <p className="mt-1 text-sm text-[#657083]">Safe Mode active · Answers autosave immediately</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="rounded-xl bg-[#07142f] px-5 py-3 text-lg font-bold text-white">{formatTimer(secondsLeft)}</span>
-          <button type="button" onClick={onSubmit} className="rounded-xl bg-[#3155ff] px-6 py-3 text-sm font-semibold text-white">Submit</button>
-        </div>
-      </div>
-      <div className="space-y-5">
-        {attempt.questions.map((question, index) => (
-          <Card key={question.id} className="rounded-[18px] border border-[#dfe4f2] bg-white p-6 shadow-sm">
-            <p className="text-sm font-semibold text-[#3155ff]">Question {index + 1}</p>
-            <h2 className="mt-2 text-lg font-semibold text-[#07142f]">{question.text}</h2>
-            <div className="mt-5 grid gap-3 md:grid-cols-2">
-              {question.options.map((option) => {
-                const selected = answers[question.id] === option.id;
-                return (
-                  <button
-                    key={option.id}
-                    type="button"
-                    onClick={() => onChooseAnswer(question.id, option.id)}
-                    className={`rounded-xl border px-4 py-4 text-left text-sm transition ${selected ? "border-[#3155ff] bg-[#eef2ff] text-[#173ad6]" : "border-[#dfe4f2] bg-white text-[#303744] hover:border-[#3155ff]"}`}
-                  >
-                    {option.text}
-                  </button>
-                );
-              })}
-            </div>
-          </Card>
-        ))}
-      </div>
-    </div>
-  );
+function SecureExamRoom({ attempt, answers, secondsLeft, onChooseAnswer, onSubmit }: { attempt: SecureAttempt; answers: Record<string, string>; secondsLeft: number; onChooseAnswer: (questionId: string, optionId: string) => void; onSubmit: () => void; }) {
+  const [current, setCurrent] = useState(0);
+  const [bookmarked, setBookmarked] = useState<Set<string>>(() => new Set());
+  const [visited, setVisited] = useState<Set<string>>(() => new Set(attempt.questions[0] ? [attempt.questions[0].id] : []));
+  const question = attempt.questions[current];
+  const answered = attempt.questions.filter((item) => Boolean(answers[item.id])).length;
+  function go(index: number) { const safe = Math.max(0, Math.min(attempt.questions.length - 1, index)); setCurrent(safe); const id = attempt.questions[safe]?.id; if (id) setVisited((value) => new Set(value).add(id)); }
+  function toggleBookmark() { if (!question) return; setBookmarked((value) => { const next = new Set(value); if (next.has(question.id)) next.delete(question.id); else next.add(question.id); return next; }); }
+  if (!question) return null;
+  return <div className="fixed inset-0 z-[70] flex flex-col overflow-hidden bg-[#f4f6fa] text-[#101522]"><div className="shrink-0 border-b border-emerald-200 bg-emerald-50 py-1.5 text-center text-sm font-semibold text-emerald-700">Internet Status: {navigator.onLine ? "Online" : "Offline"}</div><header className="flex shrink-0 flex-wrap items-center gap-4 border-b bg-white px-5 py-3"><h1 className="min-w-[220px] flex-1 font-bold">{attempt.title}</h1><select className="h-10 min-w-[260px] rounded border px-3"><option>Section 1/1 | Questions ({attempt.questions.length})</option></select><span className="text-sm">Question {current + 1} / {attempt.questions.length}</span><span className="rounded border px-3 py-2 font-mono font-bold">{formatTimer(secondsLeft)}</span><button onClick={onSubmit} className="rounded bg-[#153998] px-5 py-2.5 font-bold text-white">Submit Test</button></header><div className="grid min-h-0 flex-1 grid-cols-[150px_minmax(0,1fr)]"><aside className="flex min-h-0 flex-col border-r bg-white"><div className="grid grid-cols-2 gap-2 overflow-y-auto p-3">{attempt.questions.map((item,index) => <button key={item.id} onClick={() => go(index)} className={`h-9 rounded border text-sm font-semibold ${current === index ? "border-[#3155ff] bg-[#3155ff] text-white" : answers[item.id] ? "border-emerald-300 bg-emerald-50 text-emerald-700" : bookmarked.has(item.id) ? "border-amber-300 bg-amber-50" : "border-slate-200"}`}>{index + 1}</button>)}</div><dl className="mt-auto space-y-2 border-t p-3 text-xs"><div className="flex justify-between"><dt>Answered</dt><dd>{answered}/{attempt.questions.length}</dd></div><div className="flex justify-between"><dt>Bookmarked</dt><dd>{bookmarked.size}/{attempt.questions.length}</dd></div><div className="flex justify-between"><dt>Skipped</dt><dd>{Math.max(0, visited.size - answered)}/{attempt.questions.length}</dd></div><div className="flex justify-between"><dt>Not Viewed</dt><dd>{Math.max(0, attempt.questions.length - visited.size)}/{attempt.questions.length}</dd></div><div className="flex justify-between"><dt>Saved in Server</dt><dd>{answered}/{attempt.questions.length}</dd></div></dl></aside><main className="grid min-h-0 grid-cols-1 lg:grid-cols-2"><section className="overflow-y-auto border-r bg-white p-6"><div className="flex items-center justify-between"><p className="text-sm font-bold">Question No: {current + 1} / {attempt.questions.length}</p><button onClick={toggleBookmark} className={`grid h-10 w-10 place-items-center rounded border ${bookmarked.has(question.id) ? "border-amber-400 bg-amber-50 text-amber-600" : "border-slate-300"}`} aria-label="Bookmark question"><Bookmark size={19} fill={bookmarked.has(question.id) ? "currentColor" : "none"} /></button></div><h2 className="mt-8 text-xl font-bold">Multiple Choice Question</h2><p className="mt-5 whitespace-pre-wrap text-base leading-7">{question.text}</p></section><section className="flex min-h-0 flex-col bg-white"><div className="border-b px-6 py-4 text-lg font-bold">Answer here</div><div className="flex-1 overflow-y-auto">{question.options.map((option) => <label key={option.id} className="flex cursor-pointer items-center gap-4 border-b px-6 py-5 hover:bg-slate-50"><input type="radio" name={question.id} checked={answers[question.id] === option.id} onChange={() => onChooseAnswer(question.id, option.id)} className="h-5 w-5" /><span>{option.text}</span></label>)}</div><div className="flex justify-between border-t p-4"><button disabled={current === 0} onClick={() => go(current - 1)} className="inline-flex items-center gap-2 rounded border px-4 py-2 disabled:opacity-40"><ChevronLeft size={17}/>Previous</button><button disabled={current === attempt.questions.length - 1} onClick={() => go(current + 1)} className="inline-flex items-center gap-2 rounded bg-[#3155ff] px-4 py-2 text-white disabled:opacity-40">Next<ChevronRight size={17}/></button></div></section></main></div></div>;
 }
-
 function AssessmentEnded({ attempt, onBack }: { attempt: SecureAttempt; onBack: () => void }) {
   return (
     <div className="grid min-h-[calc(100vh-160px)] place-items-center">

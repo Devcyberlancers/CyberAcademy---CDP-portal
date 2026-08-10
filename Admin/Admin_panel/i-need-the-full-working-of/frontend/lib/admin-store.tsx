@@ -22,6 +22,8 @@ export type StudentRecord = {
   portfolioUrl?: string;
   photoDataUrl?: string;
   educationSummary?: Array<{ level: string; year_from: string; year_to: string; score: string }>;
+  educationDetails?: Array<{ level?: string; institution?: string; programme?: string; customProgramme?: string; yearFrom?: string; yearTo?: string; score?: string; markscardFileName?: string; markscardDataUrl?: string }>;
+  resumeUrl?: string; resumeDataUrl?: string; resumeFileName?: string; gender?: string; dateOfBirth?: string; personalEmail?: string; college?: string; mentorName?: string; updatedAt?: string;
   notes?: string[];
 };
 
@@ -110,7 +112,7 @@ function studentFromDb(student: DbStudent): StudentRecord {
     status: dbStatusToUi(student.status, student.profile_status),
     progress: student.progress_percent,
     module: student.current_module ?? "Profile Pending",
-    lastLogin: "-",
+    lastLogin: student.last_login ? new Date(student.last_login).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }) + " IST" : "Never",
     joined: "From database",
     phone: student.phone ?? undefined,
     degree: student.degree ?? undefined,
@@ -119,6 +121,7 @@ function studentFromDb(student: DbStudent): StudentRecord {
     portfolioUrl: student.portfolio_url ?? undefined,
     photoDataUrl: student.photo_data_url ?? undefined,
     educationSummary: student.education_summary ?? [],
+    educationDetails: student.education_details ?? [], resumeUrl: student.resume_url ?? undefined, resumeDataUrl: student.resume_data_url ?? undefined, resumeFileName: student.resume_file_name ?? undefined, gender: student.gender ?? undefined, dateOfBirth: student.date_of_birth ?? undefined, personalEmail: student.personal_email ?? undefined, college: student.college ?? undefined, mentorName: student.mentor_name ?? undefined, updatedAt: student.updated_at ?? undefined,
     notes: ["Loaded from MySQL database."]
   };
 }

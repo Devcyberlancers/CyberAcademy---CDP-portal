@@ -90,6 +90,9 @@ export type DbStudent = {
   portfolio_url?: string | null;
   photo_data_url?: string | null;
   education_summary?: Array<{ level: string; year_from: string; year_to: string; score: string }>;
+  education_details?: Array<{ level?: string; institution?: string; programme?: string; customProgramme?: string; yearFrom?: string; yearTo?: string; score?: string; markscardFileName?: string; markscardDataUrl?: string }>;
+  resume_url?: string | null; resume_file_name?: string | null; resume_data_url?: string | null;
+  gender?: string | null; date_of_birth?: string | null; personal_email?: string | null; college?: string | null; mentor_name?: string | null; updated_at?: string | null; last_login?: string | null;
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

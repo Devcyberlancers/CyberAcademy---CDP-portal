@@ -73,6 +73,11 @@ export class AuthService {
     }
     const profile = await this.prisma.student_profiles.findUnique({ where: { email: user.email } });
     const name = profile?.full_name || user.email.split('@')[0];
+    await this.prisma.admin_snapshots.upsert({
+      where: { key: `last-login:${user.email.toLowerCase()}` },
+      create: { key: `last-login:${user.email.toLowerCase()}`, payload: JSON.stringify({ at: new Date().toISOString() }), updated_by: user.email, updated_at: new Date() },
+      update: { payload: JSON.stringify({ at: new Date().toISOString() }), updated_by: user.email, updated_at: new Date() },
+    });
     return {
       access_token: await this.signToken(user.email, user.role),
       token_type: 'bearer',

@@ -439,10 +439,11 @@ export class AdminService {
 
   private async profileResponse(profile: any) {
     const email = profile.email.toLowerCase();
-    const [user, progressRows, moduleRows] = await Promise.all([
+    const [user, progressRows, moduleRows, lastLoginRow] = await Promise.all([
       this.prisma.users.findUnique({ where: { email } }),
       this.prisma.admin_snapshots.findMany({ where: { key: { endsWith: `:${email}` } } }),
       this.prisma.admin_snapshots.findMany({ where: { key: { startsWith: 'course-editor-modules-' } } }),
+      this.prisma.admin_snapshots.findUnique({ where: { key: `last-login:${email}` } }),
     ]);
     const modulesByCourse = new Map<number, Array<{ title?: string }>>();
     for (const row of moduleRows) {
@@ -457,8 +458,7 @@ export class AdminService {
       try {
         const modules = modulesByCourse.get(Number(match[1])) ?? [];
         const saved = JSON.parse(row.payload) as { videos?: number[]; quizzes?: Record<string, { passed?: boolean }> };
-        const videos = new Set(saved.videos ?? []);
-        const complete = modules.map((_, index) => videos.has(index) && Boolean(saved.quizzes?.[String(index)]?.passed));
+        const complete = modules.map((_, index) => Boolean(saved.quizzes?.[String(index)]?.passed));
         const nextIndex = complete.findIndex((done) => !done);
         courseProgress.push({ percent: modules.length ? Math.round((complete.filter(Boolean).length / modules.length) * 100) : 0, currentModule: nextIndex >= 0 ? modules[nextIndex]?.title : modules.at(-1)?.title });
       } catch { /* malformed progress snapshot */ }
@@ -470,7 +470,6 @@ export class AdminService {
     try {
       const education = JSON.parse(profile.education_json || '[]');
       if (Array.isArray(education)) education_summary = education
-        .filter((item) => ['Class 10', 'PUC', 'Diploma', 'Degree'].includes(String(item?.level)))
         .map((item) => ({ level: String(item.level), year_from: String(item.yearFrom || ''), year_to: String(item.yearTo || ''), score: String(item.score || '') }));
     } catch { /* malformed student education is ignored in the admin summary */ }
     return {
@@ -484,7 +483,11 @@ export class AdminService {
       portal_link: `${this.config.get<string>('studentFrontendUrl')?.replace(/\/+$/, '')}/student/login`,
       credential_email: profile.email, sender_email: sender, company_email: sender,
       credential_email_sent: false, credential_delivery_message: null,
-      portfolio_url: profile.portfolio_url || '', photo_data_url: profile.photo_data_url || null, education_summary,
+      portfolio_url: profile.portfolio_url || '', photo_data_url: profile.photo_data_url || null, education_summary, education_details: (() => { try { const value = JSON.parse(profile.education_json || '[]'); return Array.isArray(value) ? value : []; } catch { return []; } })(),
+      resume_url: profile.resume_url || '', resume_file_name: profile.resume_file_name || '', resume_data_url: profile.resume_data_url || null,
+      gender: profile.gender || '', date_of_birth: profile.date_of_birth || '', personal_email: profile.personal_email || '', college: profile.college || '', mentor_name: profile.mentor_name || '',
+      updated_at: profile.updated_at instanceof Date ? profile.updated_at.toISOString() : String(profile.updated_at || ''),
+      last_login: (() => { try { return lastLoginRow ? JSON.parse(lastLoginRow.payload)?.at || lastLoginRow.updated_at.toISOString() : null; } catch { return lastLoginRow?.updated_at.toISOString() || null; } })(),
     };
   }
 
@@ -534,7 +537,7 @@ export class AdminService {
       try {
         const saved = JSON.parse(row.payload) as { videos?: number[]; quizzes?: Record<string, { passed?: boolean }> };
         const total = moduleCount.get(Number(match[1])) ?? 0;
-        const completed = [...new Set(saved.videos ?? [])].filter((index) => saved.quizzes?.[String(index)]?.passed).length;
+        const completed = Object.values(saved.quizzes ?? {}).filter((quiz) => quiz?.passed).length;
         moduleProgress.set(Number(match[1]), total ? Math.round((completed / total) * 100) : 0);
       } catch { /* malformed progress */ }
     }

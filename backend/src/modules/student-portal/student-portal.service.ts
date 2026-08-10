@@ -364,9 +364,10 @@ export class StudentPortalService {
     if (!course || !['active', 'published'].includes(course.status)) {
       throw new NotFoundException('Published course not found');
     }
-    const [modules, banner, assessments, progress] = await Promise.all([
+    const [modules, banner, settings, assessments, progress] = await Promise.all([
       this.snapshot(`course-editor-modules-${courseId}-v2`, []),
       this.snapshot(`course-editor-banner-${courseId}-v1`, {}),
+      this.snapshot(`course-settings-${courseId}-v1`, {}),
       this.prisma.assignment_security_settings.findMany({
         where: { assignment_id: { startsWith: `course:${courseId}:` }, published: true, active: true },
         orderBy: { created_at: 'asc' },
@@ -390,6 +391,7 @@ export class StudentPortalService {
       course: {
         id: course.id, title: course.title, heading: course.heading, category: course.category,
         level: course.level, status: course.status, metadata: course.metadata_json ?? {}, banner,
+        startDate: (settings as any)?.startDate || course.start_date?.toISOString() || null, endDate: (settings as any)?.endDate || course.end_date?.toISOString() || null,
       },
       // A learner must always be able to start a published course.  This also
       // repairs old course snapshots that marked every module as locked.
