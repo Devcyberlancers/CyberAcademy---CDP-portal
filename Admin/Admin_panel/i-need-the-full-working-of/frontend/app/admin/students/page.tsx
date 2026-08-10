@@ -158,7 +158,7 @@ export default function StudentsPage() {
                 <tr key={student.id} className="border-b border-portal-line">
                   <td className="px-4 py-4">
                     <div className="flex items-center gap-3">
-                      <div className="grid h-10 w-10 place-items-center rounded-full bg-blue-50 font-bold text-portal-blue">{student.name.split(" ").map((part) => part[0]).join("")}</div>
+                      <div className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full bg-blue-50 font-bold text-portal-blue">{student.photoDataUrl ? <img src={student.photoDataUrl} alt={`${student.name} profile`} className="h-full w-full object-cover" /> : student.name.split(" ").map((part) => part[0]).join("")}</div>
                       <div>
                         <p className="font-bold text-slate-950">{student.name}</p>
                         <p className="text-xs text-slate-500">{student.email}</p>

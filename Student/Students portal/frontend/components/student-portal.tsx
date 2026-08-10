@@ -1485,10 +1485,17 @@ function AssessmentsView() {
   const [secondsLeft, setSecondsLeft] = useState(0);
   const [assessmentSort, setAssessmentSort] = useState<"title" | "duration" | "attempts">("title");
   const [assessmentFilter, setAssessmentFilter] = useState<"all" | "available" | "completed" | "exhausted">("all");
+  const [confirmSubmit, setConfirmSubmit] = useState(false);
 
   useEffect(() => {
     let alive = true;
-    setSelectedAssignmentId(new URLSearchParams(window.location.search).get("assignment") || "");
+    const params = new URLSearchParams(window.location.search);
+    const assignmentId = params.get("assignment") || "";
+    setSelectedAssignmentId(assignmentId);
+    if (params.get("preflight") === "1" && assignmentId && window.sessionStorage.getItem(`cyber-academy-assessment-ready:${assignmentId}`) === "1") {
+      setAcceptedRules(true);
+      window.sessionStorage.removeItem(`cyber-academy-assessment-ready:${assignmentId}`);
+    }
     void loadAssessments(alive);
     return () => {
       alive = false;
@@ -1656,15 +1663,16 @@ function AssessmentsView() {
   }
 
   if (attempt) {
-    return (
+    return <>
       <SecureExamRoom
         attempt={attempt}
         answers={answers}
         secondsLeft={secondsLeft}
         onChooseAnswer={chooseAnswer}
-        onSubmit={() => submitAttempt(false)}
+        onSubmit={() => setConfirmSubmit(true)}
       />
-    );
+      {confirmSubmit ? <EndTestConfirmation attempt={attempt} answers={answers} onCancel={() => setConfirmSubmit(false)} onConfirm={() => { setConfirmSubmit(false); void submitAttempt(false); }} /> : null}
+    </>;
   }
 
   return (
@@ -1774,6 +1782,12 @@ function assessmentButtonLabel(assessment: SecureAssessmentSummary) {
   return "Enter Fullscreen & Begin";
 }
 
+function EndTestConfirmation({ attempt, answers, onCancel, onConfirm }: { attempt: SecureAttempt; answers: Record<string, string>; onCancel: () => void; onConfirm: () => void }) {
+  const [confirmation, setConfirmation] = useState("");
+  const answered = Object.keys(answers).length;
+  const total = attempt.questions.length;
+  return <div className="fixed inset-0 z-[80] grid place-items-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-label="End Test confirmation"><div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-2xl sm:p-8"><h2 className="text-2xl font-bold text-[#07142f]">End Test</h2><p className="mt-5 text-base text-[#4d5360]">Are you sure you want to submit this test?</p><p className="mt-3 font-semibold text-red-600">By typing END, the entire test will be submitted.</p><div className="mt-5 overflow-hidden rounded-xl border border-[#dfe4f2]"><div className="bg-[#eef2ff] px-4 py-3 text-center font-bold text-[#07142f]">Test Summary</div><dl className="grid grid-cols-[1fr_auto] gap-y-3 p-4 text-sm"><dt>Number of sections</dt><dd className="font-bold">1</dd><dt>Number of questions</dt><dd className="font-bold">{total}</dd><dt>Answered</dt><dd className="font-bold text-emerald-600">{answered}</dd><dt>Saved in server</dt><dd className="font-bold">{answered}</dd><dt>Skipped</dt><dd className="font-bold text-amber-600">{Math.max(0, total - answered)}</dd><dt>Not viewed</dt><dd className="font-bold">{Math.max(0, total - answered)}</dd></dl></div><label className="mt-5 block"><span className="mb-2 block text-sm font-bold text-[#07142f]">Enter “END” to confirm <b className="text-red-600">*</b></span><input autoFocus value={confirmation} onChange={(event) => setConfirmation(event.target.value)} className="h-11 w-full rounded-lg border border-[#cfd6e3] px-3 outline-none focus:border-[#3155ff]" placeholder="END" /></label><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={onCancel} className="rounded-lg border border-[#cfd6e3] px-6 py-2.5 font-semibold text-[#4d5360]">No</button><button type="button" disabled={confirmation.trim().toUpperCase() !== "END"} onClick={onConfirm} className="rounded-lg bg-[#3155ff] px-7 py-2.5 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">Yes, submit</button></div></div></div>;
+}
 function SecureExamRoom({
   attempt,
   answers,

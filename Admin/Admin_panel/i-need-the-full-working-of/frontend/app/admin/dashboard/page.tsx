@@ -76,9 +76,9 @@ export default function AdminDashboardPage() {
 
   return (
     <AdminShell title="Dashboard" subtitle="Live admin control center for client testing">
-      <div className="grid min-w-0 gap-4 lg:grid-cols-3 lg:gap-5">
-        <div className="grid gap-5 lg:col-span-2">
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid min-w-0 items-start gap-4 lg:grid-cols-3 lg:gap-5">
+        <div className="grid self-start gap-5 lg:col-span-2">
+          <div className="grid items-start gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {dashboardStats.map((stat) => (
               <StatCard key={stat.label} {...stat} />
             ))}

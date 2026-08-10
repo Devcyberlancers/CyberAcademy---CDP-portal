@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { ArrowLeft, BookOpen, CheckCircle2, ClipboardCheck, ExternalLink, FileText, Lock, PlayCircle } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { ArrowLeft, BookOpen, CheckCircle2, ClipboardCheck, ExternalLink, FileText, Lock, X } from "lucide-react";
+import { DashboardShell, type StudentSection } from "@/components/dashboard-shell";
+import { defaultStudentAccount, fetchStudentProfile, readStudentAccount, type StudentAccount } from "@/lib/student-account";
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
@@ -56,6 +58,16 @@ export default function StudentCoursePage({ params }: { params: Promise<{ id: st
   const [quizError, setQuizError] = useState("");
   const [quizResult, setQuizResult] = useState<{ score: number; passed: boolean } | null>(null);
   const [activeModuleIndex, setActiveModuleIndex] = useState(0);
+  const [student, setStudent] = useState<StudentAccount>(defaultStudentAccount);
+  const [searchValue, setSearchValue] = useState("");
+  const [instructionAssessment, setInstructionAssessment] = useState<CourseAssessment | null>(null);
+  const [preflightAssessment, setPreflightAssessment] = useState<CourseAssessment | null>(null);
+
+  useEffect(() => {
+    const account = readStudentAccount();
+    setStudent(account);
+    if (account.email) void fetchStudentProfile(account.email).then((profile) => { if (profile) setStudent(profile); }).catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     void params.then(({ id }) => setCourseId(id));
@@ -73,11 +85,24 @@ export default function StudentCoursePage({ params }: { params: Promise<{ id: st
       .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Course content could not be loaded."));
   }, [courseId]);
 
+  const withPortalShell = (content: ReactNode) => (
+    <DashboardShell
+      activeSection="courses"
+      onSectionChange={(section: StudentSection) => { window.location.href = `/dashboard/student?section=${encodeURIComponent(section)}`; }}
+      searchValue={searchValue}
+      onSearchValueChange={setSearchValue}
+      onSearchSubmit={() => { window.location.href = `/dashboard/student?section=courses&search=${encodeURIComponent(searchValue.trim())}`; }}
+      student={student}
+    >
+      {content}
+    </DashboardShell>
+  );
+
   if (error) {
-    return <CourseMessage message={error} />;
+    return withPortalShell(<CourseMessage message={error} />);
   }
   if (!data) {
-    return <CourseMessage message="Loading course content…" />;
+    return withPortalShell(<CourseMessage message="Loading course content…" />);
   }
 
   const description = data.course.metadata?.description || data.course.heading || "Course content published by your administrator.";
@@ -122,8 +147,8 @@ export default function StudentCoursePage({ params }: { params: Promise<{ id: st
     if (refreshed.ok) setData(await refreshed.json() as CourseContent);
   }
 
-  return (
-    <main className="min-h-screen bg-[#f6f8fc] px-4 py-8 text-[#07142f] sm:px-7">
+  return withPortalShell(
+    <main className="min-h-[calc(100vh-72px)] bg-[#f6f8fc] px-4 py-6 text-[#07142f] sm:px-7">
       <div className="mx-auto max-w-6xl">
         <Link href="/dashboard/student?section=courses" className="inline-flex items-center gap-2 font-semibold text-[#3155ff]">
           <ArrowLeft size={18} /> Back to Courses
@@ -169,14 +194,10 @@ export default function StudentCoursePage({ params }: { params: Promise<{ id: st
                       <h3 className="text-xl font-bold">{assessment.title}</h3>
                       <p className="mt-1 text-sm text-[#657083]">{assessment.durationMinutes} minutes · {assessment.maxAttempts} attempts · {assessment.questionCount} questions</p>
                     </div>
-                    <Link
-                      href={`/dashboard/student?section=assessments&assignment=${encodeURIComponent(assessment.assignmentId)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="rounded-lg bg-[#3155ff] px-4 py-2.5 font-semibold text-white"
-                    >
-                      Open assessment
-                    </Link>
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" onClick={() => setInstructionAssessment(assessment)} className="rounded-lg px-4 py-2.5 font-semibold text-[#3155ff] transition hover:bg-[#eef2ff]">View Instructions</button>
+                      <button type="button" onClick={() => setPreflightAssessment(assessment)} className="rounded-lg bg-[#3155ff] px-4 py-2.5 font-semibold text-white">Take Test</button>
+                    </div>
                   </div>
                   <div className="mt-4 rounded-xl border border-[#dfe4f2] bg-[#f9fafc] px-4 py-3 text-sm text-[#657083]">
                     Questions are protected and will appear only after you accept the rules and begin the test.
@@ -190,6 +211,8 @@ export default function StudentCoursePage({ params }: { params: Promise<{ id: st
         </section>
 
         {activeQuizIndex !== null ? <CourseQuiz module={data.modules[activeQuizIndex]} answers={quizAnswers} onChoose={(index, value) => setQuizAnswers((current) => ({ ...current, [String(index)]: value }))} error={quizError} result={quizResult} onSubmit={() => void submitModuleQuiz()} onClose={() => setActiveQuizIndex(null)} /> : null}
+        {instructionAssessment ? <PlatformInstructions assessment={instructionAssessment} onClose={() => setInstructionAssessment(null)} /> : null}
+        {preflightAssessment ? <AssessmentReadinessDialog assessment={preflightAssessment} onClose={() => setPreflightAssessment(null)} /> : null}
       </div>
     </main>
   );
@@ -229,4 +252,34 @@ function youtubeEmbedUrl(value: string) {
   } catch {
     return value;
   }
+}
+
+function PlatformInstructions({ assessment, onClose }: { assessment: CourseAssessment; onClose: () => void }) {
+  return <section className="fixed inset-0 z-[60] overflow-y-auto bg-slate-950/55 p-4 sm:p-8" role="dialog" aria-modal="true" aria-label="Platform Instructions" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><div className="mx-auto max-w-3xl rounded-2xl bg-white shadow-2xl"><div className="sticky top-0 flex items-start justify-between gap-4 border-b border-[#edf0f5] bg-white p-5 sm:p-6"><div><p className="text-sm font-bold text-[#3155ff]">{assessment.title}</p><h2 className="mt-1 text-2xl font-bold text-[#07142f]">Platform Instructions</h2></div><button type="button" onClick={onClose} className="grid h-10 w-10 place-items-center rounded-full border border-[#dfe4f2] text-[#657083]" aria-label="Close instructions"><X size={20} /></button></div><div className="space-y-6 p-5 text-sm leading-6 text-[#4d5360] sm:p-7"><InstructionBlock title="Navigating Your Test"><p>You can see the time available to complete the test in the countdown timer at the top right of the test screen at all times.</p><p>If sectional lock is enabled, a separate countdown timer appears on the section tab.</p><p>You can bookmark an answer for later review using the flag icon. All answers are saved automatically.</p></InstructionBlock><InstructionBlock title="Instructions for Coding Section"><p>Click <b>Submit Code</b> to send code for evaluation; otherwise it is not submitted.</p><p>Changing the coding language may remove code you have typed. Confirm before switching languages.</p></InstructionBlock><InstructionBlock title="Instructions for Video Questions"><p>Record responses as videos where requested. Select Start Recording, then Submit Recording.</p><p>You may delete and re-record before submission. Once submitted, the recording cannot be changed.</p></InstructionBlock><InstructionBlock title="Important Instructions for Proctored Test"><ul className="list-disc space-y-2 pl-5"><li>Use a reliable, uninterrupted network connection and clear browser cache, history, and cookies before starting.</li><li>Keep your webcam uncovered, with a clear, well-lit background. Your face and both ears must remain visible.</li><li>Do not turn away from the monitor, use a personal calculator, or allow notifications to interrupt the assessment.</li><li>Mobile users should keep the phone stable and undisturbed. If phone monitoring is required, connect it by USB—not Bluetooth or Wi-Fi.</li><li>AI proctoring detects suspicious activity such as mobile phone usage or assistance from others.</li></ul></InstructionBlock><InstructionBlock title="Submitting Your Exam"><p>To end the test, select End Test and confirm by typing <b>END</b>. The test is submitted automatically when the allotted time expires.</p></InstructionBlock><InstructionBlock title="Caution"><p><b>Do not refresh the page or use the browser back button while the test is in progress.</b> You may lose unsaved data.</p><p>If internet or power is interrupted, sign in again to resume from the last automatic save point.</p></InstructionBlock><div className="flex justify-end border-t border-[#edf0f5] pt-5"><button type="button" onClick={onClose} className="rounded-lg bg-[#3155ff] px-5 py-2.5 font-semibold text-white">Close</button></div></div></div></section>;
+}
+
+function InstructionBlock({ title, children }: { title: string; children: ReactNode }) { return <section><h3 className="text-base font-bold text-[#07142f]">{title}</h3><div className="mt-2 space-y-2">{children}</div></section>; }
+function AssessmentReadinessDialog({ assessment, onClose }: { assessment: CourseAssessment; onClose: () => void }) {
+  const [cameraChecked, setCameraChecked] = useState(false);
+  const [cameraError, setCameraError] = useState("");
+  const chromium = typeof navigator !== "undefined" && /Chrome|Edg|Chromium/i.test(navigator.userAgent) && !/Firefox|Safari\//i.test(navigator.userAgent);
+  const checks = [
+    { label: "Supported browser", detail: "Use the latest Google Chrome or Microsoft Edge.", passed: chromium },
+    { label: "Internet connection", detail: navigator.onLine ? "Internet connection is online." : "Reconnect to the internet before starting.", passed: navigator.onLine },
+    { label: "Screen size", detail: window.innerWidth >= 1024 ? "Desktop or laptop display detected." : "Use a desktop or laptop with at least 1024px width.", passed: window.innerWidth >= 1024 },
+    { label: "Fullscreen support", detail: document.fullscreenEnabled ? "Fullscreen mode is available." : "Fullscreen is blocked by this browser or device.", passed: document.fullscreenEnabled },
+    { label: "Camera permission", detail: cameraChecked ? "Camera access verified." : cameraError || "Verify your camera before continuing.", passed: cameraChecked },
+  ];
+  const allPassed = checks.every((check) => check.passed);
+  async function verifyCamera() {
+    setCameraError("");
+    try { const stream = await navigator.mediaDevices.getUserMedia({ video: true }); stream.getTracks().forEach((track) => track.stop()); setCameraChecked(true); }
+    catch { setCameraChecked(false); setCameraError("Camera permission was not granted. Allow camera access and try again."); }
+  }
+  function continueToTest() {
+    if (!allPassed) return;
+    window.sessionStorage.setItem(`cyber-academy-assessment-ready:${assessment.assignmentId}`, "1");
+    window.location.href = `/dashboard/student?section=assessments&assignment=${encodeURIComponent(assessment.assignmentId)}&preflight=1`;
+  }
+  return <section className="fixed inset-0 z-[70] grid place-items-center overflow-y-auto bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-label="Assessment readiness check"><div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl"><div className="flex items-start justify-between gap-4 border-b border-[#edf0f5] p-5 sm:p-6"><div><p className="text-sm font-bold text-[#3155ff]">Secure assessment check</p><h2 className="mt-1 text-2xl font-bold text-[#07142f]">Ready to take {assessment.title}?</h2><p className="mt-2 text-sm text-[#657083]">Complete every requirement before the secure test can begin.</p></div><button type="button" onClick={onClose} className="grid h-10 w-10 place-items-center rounded-full border border-[#dfe4f2] text-[#657083]" aria-label="Close readiness check"><X size={20} /></button></div><div className="space-y-3 p-5 sm:p-6">{checks.map((check) => <div key={check.label} className={`flex items-start gap-3 rounded-xl border p-4 ${check.passed ? "border-emerald-200 bg-emerald-50" : "border-red-200 bg-red-50"}`}><span className={`mt-0.5 grid h-6 w-6 place-items-center rounded-full text-white ${check.passed ? "bg-emerald-500" : "bg-red-500"}`}>{check.passed ? "✓" : "!"}</span><div><p className={`font-bold ${check.passed ? "text-emerald-800" : "text-red-800"}`}>{check.label}</p><p className={`mt-1 text-sm ${check.passed ? "text-emerald-700" : "text-red-700"}`}>{check.detail}</p></div></div>)}</div><div className="flex flex-col-reverse gap-3 border-t border-[#edf0f5] p-5 sm:flex-row sm:justify-end"><button type="button" onClick={() => void verifyCamera()} className="rounded-lg border border-[#3155ff] px-4 py-2.5 font-semibold text-[#3155ff]">{cameraChecked ? "Camera verified" : "Verify camera"}</button><button type="button" disabled={!allPassed} onClick={continueToTest} className="rounded-lg bg-[#3155ff] px-5 py-2.5 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">Continue to secure test</button></div></div></section>;
 }
