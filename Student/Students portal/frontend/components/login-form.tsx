@@ -45,36 +45,32 @@ export function LoginForm() {
   }
 
   const onSubmit = async (values: LoginValues) => {
-    if (!showPasswordStep) {
-      continueToPassword();
-      return;
-    }
+    if (!showPasswordStep) { continueToPassword(); return; }
     if (!values.password || values.password.length < 8) {
-      setError("password", { type: "manual", message: "Password must be at least 8 characters" });
+      setLoginNotice("Wrong username or password.");
       return;
     }
-    const response = await fetch(`${apiBaseUrl}/api/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: values.email.trim().toLowerCase(),
-        password: values.password
-      })
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${apiBaseUrl}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: values.email.trim().toLowerCase(), password: values.password })
+      });
+    } catch {
+      setLoginNotice("We could not reach the login service. Please check your connection and try again.");
+      return;
+    }
     if (!response.ok) {
-      const message = await readErrorMessage(response);
-      setLoginNotice(response.status === 401 || response.status === 403 ? "Wrong username or password." : message || "We could not sign you in. Please try again.");
+      setLoginNotice("Wrong username or password.");
       return;
     }
     const token = (await response.json()) as { access_token?: string; role?: string };
-    if (!token.access_token || !token.role) {
-      setError("password", { type: "manual", message: "Login response was incomplete. Please try again." });
-      return;
-    }
+    if (!token.access_token || !token.role) { setLoginNotice("Wrong username or password."); return; }
     window.localStorage.setItem(authTokenStorageKey, token.access_token);
     if (token.role === "admin") {
       const adminPortalUrl = process.env.NEXT_PUBLIC_ADMIN_PORTAL_URL ?? "http://localhost:3001";
-      window.location.href = `${adminPortalUrl}/auth/callback#token=${encodeURIComponent(token.access_token ?? "")}`;
+      window.location.href = `${adminPortalUrl}/auth/callback#token=${encodeURIComponent(token.access_token)}`;
       return;
     }
     const account = buildStudentAccount(values.email.trim().toLowerCase());
@@ -82,9 +78,9 @@ export function LoginForm() {
     try {
       const profile = await fetchStudentProfile(account.email);
       if (profile) saveStudentAccount(profile);
-    } catch (error) {
+    } catch {
       window.localStorage.removeItem(authTokenStorageKey);
-      setError("password", { type: "manual", message: error instanceof Error ? error.message : "Your profile could not be loaded. Please try again." });
+      setLoginNotice("Your profile could not be loaded. Please try again.");
       return;
     }
     window.location.href = "/dashboard/student";
@@ -146,7 +142,11 @@ export function LoginForm() {
         </div>
       )}
 
+      {loginNotice ? <div role="alert" aria-live="polite" className="rounded-md border border-red-200 bg-red-50 px-3.5 py-3 text-sm font-semibold text-red-700">{loginNotice}</div> : null}
+
+
       <button
+
         type={showPasswordStep ? "submit" : "button"}
         onClick={showPasswordStep ? undefined : continueToPassword}
         disabled={isSubmitting}

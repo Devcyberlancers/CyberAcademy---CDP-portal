@@ -110,6 +110,8 @@ export default function StudentCoursePage({ params }: { params: Promise<{ id: st
   const courseProgress = data.modules.length ? Math.round((completedModules / data.modules.length) * 100) : 0;
   const activeModule = data.modules[Math.min(activeModuleIndex, Math.max(0, data.modules.length - 1))];
   const activeModulePosition = Math.min(activeModuleIndex, Math.max(0, data.modules.length - 1));
+  const moduleTests: CourseAssessment[] = data.modules.flatMap((module, moduleIndex) => module.generatedQuestions?.length ? [{ assignmentId: `module:${moduleIndex}`, title: module.quiz || module.title || `Module ${moduleIndex + 1} Test`, durationMinutes: 0, maxAttempts: 1, questionCount: module.generatedQuestions.length }] : []);
+  const testItems = [...moduleTests, ...data.assessments];
 
   function startModuleQuiz(moduleIndex: number) {
     setQuizError("");
@@ -133,13 +135,13 @@ export default function StudentCoursePage({ params }: { params: Promise<{ id: st
 
   return withPortalShell(
     <main className="min-h-[calc(100vh-72px)] bg-[#f6f8fc] px-4 py-6 text-[#07142f] sm:px-7">
-      <div className="mx-auto max-w-6xl">
+      <div className="mx-auto w-full max-w-none">
         <Link href="/dashboard/student?section=courses" className="inline-flex items-center gap-2 font-semibold text-[#3155ff]">
           <ArrowLeft size={18} /> Back to Courses
         </Link>
 
-        <CourseHeader course={data.course} courseProgress={courseProgress} assessmentCount={data.assessments.length} moduleCount={data.modules.length} />
-        {data.assessments.length ? <CourseAssessmentWorkspace assessments={data.assessments} courseProgress={courseProgress} onInstructions={setInstructionAssessment} onTakeTest={setPreflightAssessment} /> : null}
+        <CourseHeader course={data.course} courseProgress={courseProgress} assessmentCount={testItems.length} moduleCount={data.modules.length} />
+        {testItems.length ? <CourseAssessmentWorkspace assessments={testItems} courseProgress={courseProgress} onInstructions={setInstructionAssessment} onTakeTest={(assessment) => { if (assessment.assignmentId.startsWith("module:")) { startModuleQuiz(Number(assessment.assignmentId.slice("module:".length))); return; } setPreflightAssessment(assessment); }} /> : null}
         <section className="mt-6 grid gap-5 xl:grid-cols-[320px_minmax(0,1fr)]">
           <aside className="rounded-2xl border border-[#dfe4f2] bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between gap-3 border-b border-[#edf0f5] pb-4"><h2 className="flex items-center gap-2 text-lg font-bold"><BookOpen size={20} /> Course content</h2><span className="rounded-full bg-[#eef2ff] px-2.5 py-1 text-xs font-bold text-[#3155ff]">{completedModules}/{data.modules.length}</span></div>

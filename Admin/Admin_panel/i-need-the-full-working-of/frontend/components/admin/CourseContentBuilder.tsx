@@ -469,7 +469,7 @@ export function CourseContentBuilder({ courseId }: CourseContentBuilderProps) {
                 {draft.generatedQuestions.length ? (
                   <div className="divide-y divide-portal-line">
                     {draft.generatedQuestions.map((question, index) => (
-                      <div key={`${question.question}-${index}`} className="grid gap-3 p-4 text-sm">
+                      <div key={index} className="grid gap-3 p-4 text-sm">
                         <div className="flex items-center justify-between gap-3">
                           <p className="font-bold text-slate-800">Question {index + 1}</p>
                           <button type="button" onClick={() => removeGeneratedQuestion(index)} className="text-red-500" aria-label="Remove question">
