@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
-import { ArrowLeft, BookOpen, CheckCircle2, ClipboardCheck, ExternalLink, FileText, Lock, X } from "lucide-react";
+import { ArrowLeft, BookOpen, CalendarDays, CheckCircle2, ClipboardCheck, ExternalLink, FileText, Lock, Medal, Search, Trophy, X } from "lucide-react";
 import { DashboardShell, type StudentSection } from "@/components/dashboard-shell";
 import { defaultStudentAccount, fetchStudentProfile, readStudentAccount, type StudentAccount } from "@/lib/student-account";
 
@@ -154,20 +154,8 @@ export default function StudentCoursePage({ params }: { params: Promise<{ id: st
           <ArrowLeft size={18} /> Back to Courses
         </Link>
 
-        <section className="mt-5 overflow-hidden rounded-2xl border border-[#dfe4f2] bg-white shadow-sm">
-          {data.course.banner?.imageUrl ? (
-            <img src={data.course.banner.imageUrl} alt="" className="h-56 w-full object-cover" />
-          ) : null}
-          <div className="p-6 sm:p-8">
-            <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-[#3155ff]">
-              <span>{data.course.category || "Course"}</span><span>•</span><span>{data.course.level || "All levels"}</span>
-            </div>
-            <h1 className="mt-3 text-3xl font-bold">{data.course.title}</h1>
-            <p className="mt-4 max-w-4xl leading-7 text-[#657083]">{description}</p>
-            <div className="mt-5 flex max-w-md items-center gap-3 text-sm"><span className="font-bold text-[#07142f]">Your progress</span><div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[#e9edf5]"><div className="h-full rounded-full bg-[#3155ff] transition-all" style={{ width: `${courseProgress}%` }} /></div><span className="font-bold text-[#3155ff]">{courseProgress}%</span></div>
-          </div>
-        </section>
-
+        <CourseHeader course={data.course} courseProgress={courseProgress} assessmentCount={data.assessments.length} moduleCount={data.modules.length} />
+        {data.assessments.length ? <CourseAssessmentWorkspace assessments={data.assessments} courseProgress={courseProgress} onInstructions={setInstructionAssessment} onTakeTest={setPreflightAssessment} /> : null}
         <section className="mt-6 grid gap-5 xl:grid-cols-[320px_minmax(0,1fr)]">
           <aside className="rounded-2xl border border-[#dfe4f2] bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between gap-3 border-b border-[#edf0f5] pb-4"><h2 className="flex items-center gap-2 text-lg font-bold"><BookOpen size={20} /> Course content</h2><span className="rounded-full bg-[#eef2ff] px-2.5 py-1 text-xs font-bold text-[#3155ff]">{completedModules}/{data.modules.length}</span></div>
@@ -183,33 +171,6 @@ export default function StudentCoursePage({ params }: { params: Promise<{ id: st
             </> : <EmptyState message="No modules have been published for this course yet." />}
           </article>
         </section>
-        <section className="mt-8">
-          <h2 className="flex items-center gap-2 text-2xl font-bold"><ClipboardCheck size={24} /> Assessments</h2>
-          {data.assessments.length ? (
-            <div className="mt-4 grid gap-5">
-              {data.assessments.map((assessment) => (
-                <article key={assessment.assignmentId} className="rounded-2xl border border-[#dfe4f2] bg-white p-6 shadow-sm">
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div>
-                      <h3 className="text-xl font-bold">{assessment.title}</h3>
-                      <p className="mt-1 text-sm text-[#657083]">{assessment.durationMinutes} minutes · {assessment.maxAttempts} attempts · {assessment.questionCount} questions</p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button type="button" onClick={() => setInstructionAssessment(assessment)} className="rounded-lg px-4 py-2.5 font-semibold text-[#3155ff] transition hover:bg-[#eef2ff]">View Instructions</button>
-                      <button type="button" onClick={() => setPreflightAssessment(assessment)} className="rounded-lg bg-[#3155ff] px-4 py-2.5 font-semibold text-white">Take Test</button>
-                    </div>
-                  </div>
-                  <div className="mt-4 rounded-xl border border-[#dfe4f2] bg-[#f9fafc] px-4 py-3 text-sm text-[#657083]">
-                    Questions are protected and will appear only after you accept the rules and begin the test.
-                  </div>
-                </article>
-              ))}
-            </div>
-          ) : (
-            <EmptyState message="No assessments have been published for this course yet." />
-          )}
-        </section>
-
         {activeQuizIndex !== null ? <CourseQuiz module={data.modules[activeQuizIndex]} answers={quizAnswers} onChoose={(index, value) => setQuizAnswers((current) => ({ ...current, [String(index)]: value }))} error={quizError} result={quizResult} onSubmit={() => void submitModuleQuiz()} onClose={() => setActiveQuizIndex(null)} /> : null}
         {instructionAssessment ? <PlatformInstructions assessment={instructionAssessment} onClose={() => setInstructionAssessment(null)} /> : null}
         {preflightAssessment ? <AssessmentReadinessDialog assessment={preflightAssessment} onClose={() => setPreflightAssessment(null)} /> : null}
@@ -218,6 +179,19 @@ export default function StudentCoursePage({ params }: { params: Promise<{ id: st
   );
 }
 
+function CourseHeader({ course, courseProgress, assessmentCount, moduleCount }: { course: CourseContent["course"]; courseProgress: number; assessmentCount: number; moduleCount: number }) {
+  const details = course as CourseContent["course"] & { startDate?: string; start_date?: string; endDate?: string; end_date?: string };
+  return <><section className="mt-5 rounded-xl bg-[#102f98] px-5 py-7 text-white shadow-sm sm:px-8"><div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between"><div className="flex items-center gap-4"><span className="grid h-12 w-12 place-items-center rounded-md bg-[#a500a8]"><BookOpen size={23} /></span><h1 className="text-xl font-bold sm:text-2xl">{course.title}</h1></div><div className="flex w-full max-w-md items-center gap-3"><div className="h-2 flex-1 overflow-hidden rounded-full bg-white"><div className="h-full rounded-full bg-[#3155ff]" style={{ width: `${courseProgress}%` }} /></div><span className="font-bold">{courseProgress}%</span></div></div></section><div className="relative z-10 -mt-2 grid gap-3 sm:grid-cols-2 xl:grid-cols-5"><CourseMetric icon={<CalendarDays size={19} />} label="Start Date" value={courseDate(details.startDate || details.start_date)} tone="text-[#42b848]" /><CourseMetric icon={<CalendarDays size={19} />} label="End Date" value={courseDate(details.endDate || details.end_date)} tone="text-red-500" /><CourseMetric icon={<Medal size={19} />} label="Badges" value="0" tone="text-[#8d00ac]" /><CourseMetric icon={<Trophy size={19} />} label="Super Badges" value="0" tone="text-orange-400" /><CourseMetric icon={<ClipboardCheck size={19} />} label="Tests" value={String(assessmentCount || moduleCount)} tone="text-[#3155ff]" /></div></>;
+}
+function CourseMetric({ icon, label, value, tone }: { icon: ReactNode; label: string; value: string; tone: string }) { return <div className="flex min-h-[56px] items-center gap-3 rounded-lg bg-white px-4 py-3 shadow-md"><span className={`grid h-8 w-8 place-items-center rounded-full bg-[#f2f4ff] ${tone}`}>{icon}</span><span className="font-semibold text-[#07142f]">{label}</span><span className={`ml-auto font-bold ${tone}`}>{value}</span></div>; }
+function courseDate(value?: string) { if (!value) return "—"; const date = new Date(value); return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "2-digit" }); }
+function CourseAssessmentWorkspace({ assessments, courseProgress, onInstructions, onTakeTest }: { assessments: CourseAssessment[]; courseProgress: number; onInstructions: (assessment: CourseAssessment) => void; onTakeTest: (assessment: CourseAssessment) => void }) {
+  const [query, setQuery] = useState(""); const [selectedId, setSelectedId] = useState(assessments[0]?.assignmentId || "");
+  const visible = assessments.filter((item) => item.title.toLowerCase().includes(query.trim().toLowerCase())); const selected = assessments.find((item) => item.assignmentId === selectedId) || visible[0] || assessments[0];
+  useEffect(() => { if (selected && selected.assignmentId !== selectedId && !assessments.some((item) => item.assignmentId === selectedId)) setSelectedId(selected.assignmentId); }, [assessments, selected, selectedId]);
+  if (!selected) return null;
+  return <section className="mt-7 rounded-2xl bg-white p-4 shadow-sm sm:p-5"><div className="grid gap-5 xl:grid-cols-[32%_1fr]"><aside><label className="flex h-14 items-center gap-3 rounded-lg border border-[#e0e4ec] px-4 text-[#929bb0]"><Search size={24} /><input value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent text-lg outline-none" placeholder="Search" /></label><div className="mt-3 overflow-hidden rounded-lg border border-[#e4e7ee]"><div className="flex items-center justify-between border-b border-[#e4e7ee] p-4"><span className="font-bold text-lg">Course Assessments</span><span className="grid h-11 w-11 place-items-center rounded-full border-4 border-[#e5e7eb] border-t-[#3155ff] text-xs font-bold">{courseProgress}%</span></div><div className="max-h-[420px] overflow-y-auto p-3">{visible.length ? visible.map((item, index) => <button key={item.assignmentId} type="button" onClick={() => setSelectedId(item.assignmentId)} className={`mb-2 w-full rounded-md p-3 text-left ${selected.assignmentId === item.assignmentId ? "bg-[#f0f2ff]" : "hover:bg-[#f7f8fc]"}`}><span className={`mr-2 inline-block h-3 w-3 rounded-full ${selected.assignmentId === item.assignmentId ? "bg-[#3155ff]" : "bg-slate-400"}`} /><span className="font-semibold text-[#44506b]">{index + 1}. {item.title}</span><span className="mt-2 block pl-5 text-sm text-[#68738a]">Questions: {item.questionCount} · {item.durationMinutes || "Unlimited"} min</span></button>) : <p className="p-4 text-sm text-[#657083]">No matching tests.</p>}</div></div></aside><article className="overflow-hidden rounded-lg border border-[#e4e7ee]"><header className="flex flex-wrap items-center justify-between gap-3 bg-[#f3f4ff] px-5 py-4"><h2 className="text-xl font-bold">{selected.title}</h2><div className="flex items-center gap-2"><button type="button" onClick={() => onInstructions(selected)} className="px-3 py-2 font-semibold text-[#3155ff]">View Instructions</button><button type="button" onClick={() => onTakeTest(selected)} className="rounded-md bg-[#3155ff] px-4 py-2.5 font-bold text-white hover:bg-[#2447f1]">Take Test</button></div></header><div className="flex items-center justify-between border-b border-[#e4e7ee]"><span className="border-b-2 border-[#3155ff] bg-[#f1f3ff] px-4 py-4 text-lg font-semibold text-[#3155ff]">Overview</span><span className="px-5 font-bold">Attempts: 00 / {selected.maxAttempts || 1}</span></div><div className="p-5"><p className="mb-6 text-center text-sm text-red-500">Start before the course end date</p><div className="overflow-x-auto rounded-lg border border-[#dfe4f2]"><table className="w-full min-w-[560px] text-left"><thead className="bg-[#e8ebff]"><tr><th className="p-4">SNo</th><th className="p-4">Name</th><th className="p-4">Questions</th><th className="p-4">Duration (Min)</th><th className="p-4">Marks</th></tr></thead><tbody><tr className="border-t border-[#e4e7ee]"><td className="p-4">1</td><td className="p-4">{selected.title}</td><td className="p-4">{selected.questionCount}</td><td className="p-4">{selected.durationMinutes || "Unlimited"}</td><td className="p-4">{selected.questionCount}</td></tr><tr className="border-t border-[#e4e7ee] font-bold"><td className="p-4"></td><td className="p-4 text-[#3155ff]">Total</td><td className="p-4">{selected.questionCount}</td><td className="p-4">{selected.durationMinutes || "Unlimited"}</td><td className="p-4">{selected.questionCount}</td></tr></tbody></table></div></div></article></div></section>;
+}
 function ProgressTile({ label, complete, optional = false }: { label: string; complete: boolean; optional?: boolean }) { return <div className={`rounded-xl p-3 text-sm ${complete ? "bg-emerald-50 text-emerald-700" : "bg-slate-50 text-slate-600"}`}><p className="font-bold">{label}</p><p className="mt-1 text-xs">{optional ? "Not required" : complete ? "Complete" : "Pending"}</p></div>; }
 
 function EmptyState({ message }: { message: string }) {

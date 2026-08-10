@@ -26,6 +26,7 @@ type LoginValues = {
 export function LoginForm() {
   const [showPasswordStep, setShowPasswordStep] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [loginNotice, setLoginNotice] = useState("");
   const schema = getLoginSchema();
   const { register, handleSubmit, getValues, setError, clearErrors, formState: { errors, isSubmitting } } = useForm<LoginValues>({
     resolver: zodResolver(schema),
@@ -33,6 +34,7 @@ export function LoginForm() {
   });
 
   function continueToPassword() {
+    setLoginNotice("");
     const result = getEmailSchema().safeParse(getValues("email"));
     if (!result.success) {
       setError("email", { type: "manual", message: result.error.issues[0]?.message || "Enter a valid email" });
@@ -61,7 +63,7 @@ export function LoginForm() {
     });
     if (!response.ok) {
       const message = await readErrorMessage(response);
-      setError("password", { type: "manual", message: message || "Invalid email or password" });
+      setLoginNotice(response.status === 401 || response.status === 403 ? "Wrong username or password." : message || "We could not sign you in. Please try again.");
       return;
     }
     const token = (await response.json()) as { access_token?: string; role?: string };
@@ -121,7 +123,7 @@ export function LoginForm() {
           <label className="grid gap-2 text-base font-semibold text-[#010816]">
             Password
             <input
-              {...register("password")}
+              {...register("password", { onChange: () => setLoginNotice("") })}
               type={showPassword ? "text" : "password"}
               className="h-11 rounded-md border border-[#cfd4dc] bg-white/80 px-3.5 text-[17px] outline-none transition focus:border-[#3155ff] focus:ring-2 focus:ring-[#3155ff]/15"
               placeholder="Enter your password"
