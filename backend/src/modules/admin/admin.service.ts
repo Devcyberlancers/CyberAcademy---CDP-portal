@@ -484,7 +484,7 @@ export class AdminService {
       portal_link: `${this.config.get<string>('studentFrontendUrl')?.replace(/\/+$/, '')}/student/login`,
       credential_email: profile.email, sender_email: sender, company_email: sender,
       credential_email_sent: false, credential_delivery_message: null,
-      portfolio_url: profile.portfolio_url || '', education_summary,
+      portfolio_url: profile.portfolio_url || '', photo_data_url: profile.photo_data_url || null, education_summary,
     };
   }
 
@@ -793,13 +793,13 @@ export class AdminService {
     const profile = await this.prisma.student_profiles.findUnique({ where: { id } });
     if (!profile) throw new NotFoundException('Student not found');
     const oldEmail = profile.email.toLowerCase();
-    const loginEmail = dto.login_email.toLowerCase();
+    const loginEmail = dto.login_email.trim().toLowerCase();
     const domain = `@${this.config.get<string>('studentEmailDomain')}`;
     if (!loginEmail.endsWith(domain)) throw new UnprocessableEntityException(`Student login email must end with ${domain}`);
     const user = await this.prisma.users.findUnique({ where: { email: oldEmail } });
     if (!user) throw new ConflictException('Student login account does not exist. Create the account first.');
     const replacementPassword = `Ca!${randomBytes(18).toString('base64url')}`;
-    await this.mail.sendStudentCredentials(dto.recipient_email.toLowerCase(), dto.student_name, dto.portal_link, loginEmail, replacementPassword);
+    await this.mail.sendStudentCredentials(dto.recipient_email.trim().toLowerCase(), dto.student_name, dto.portal_link, loginEmail, replacementPassword);
     await this.prisma.$transaction([
       this.prisma.student_profiles.update({
         where: { id }, data: {
@@ -814,7 +814,7 @@ export class AdminService {
       this.prisma.portal_access_settings.updateMany({ where: { scope_key: oldEmail }, data: { scope_key: loginEmail } }),
     ]);
     return {
-      student_id: id, login_email: loginEmail, delivered_to: dto.recipient_email.toLowerCase(),
+      student_id: id, login_email: loginEmail, delivered_to: dto.recipient_email.trim().toLowerCase(),
       password_verified: true, sent: true, message: 'Credential email sent',
     };
   }

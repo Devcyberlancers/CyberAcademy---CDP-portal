@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { ProgressBar } from "@/components/admin/ProgressBar";
+import { StudentProfilePreview } from "@/components/admin/StudentProfilePreview";
 import { SectionCard } from "@/components/admin/SectionCard";
 import { useAdminStore } from "@/lib/admin-store";
 import { getStudentLearningRecord, getStudentPortalAccess, listCoursesFromDb, listJobApplicationActivity, scheduleStudentDailyReminder, sendMessageToStudent, updateStudentPortalAccess, type AdminJobApplicationActivity, type DbCourse, type PortalAccessSettings, type StudentLearningAssessment, type StudentLearningRecord } from "@/lib/admin-api";
@@ -49,6 +50,7 @@ export default function StudentDetailPage() {
   const [selectedCourseId, setSelectedCourseId] = useState("");
   const [adminActionNotice, setAdminActionNotice] = useState("");
   const [adminActionBusy, setAdminActionBusy] = useState(false);
+  const [showProfilePreview, setShowProfilePreview] = useState(false);
 
   const student = students.find((item) => item.id === params.id || item.id === `DB-STU-${params.id}`);
   const registration = student ? registrations.find((item) => item.studentId === student.id) : undefined;
@@ -187,6 +189,7 @@ export default function StudentDetailPage() {
             </>
           ) : (
             <SectionCard title="Student Details">
+              <div className="mb-4 flex justify-end"><button type="button" onClick={() => setShowProfilePreview(true)} className="flex h-10 items-center gap-2 rounded-md border border-portal-line px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50"><UserCheck size={17} className="text-portal-blue" />View Profile Details</button></div>
               <div className="grid gap-4 text-sm md:grid-cols-3">
                 <div><p className="text-slate-500">Name</p><p className="mt-1 font-bold text-slate-950">{student.name}</p></div>
                 <div><p className="text-slate-500">Register Number</p><p className="mt-1 font-bold text-slate-950">{student.regNo}</p></div>
@@ -395,6 +398,7 @@ export default function StudentDetailPage() {
           </SectionCard>
         </div>
       </div>
+      {showProfilePreview ? <StudentProfilePreview student={student} learningRecord={learningRecord} jobs={jobApplications} onClose={() => setShowProfilePreview(false)} /> : null}
       {selectedLearningCourse ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4" role="dialog" aria-modal="true" aria-label={`${selectedLearningCourse.title} details`} onMouseDown={(event) => { if (event.currentTarget === event.target) setSelectedLearningCourseId(null); }}>
           <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white shadow-2xl">

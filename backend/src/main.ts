@@ -7,7 +7,21 @@ import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { FastApiExceptionFilter } from './common/filters/fastapi-exception.filter';
-import { json, urlencoded } from 'express';
+import { json, urlencoded, type NextFunction, type Request, type Response } from 'express';
+
+function normalizeEmailFields(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(normalizeEmailFields);
+  if (!value || typeof value !== 'object') return value;
+  const record = value as Record<string, unknown>;
+  for (const [key, item] of Object.entries(record)) {
+    if (typeof item === 'string' && /(^|_)email$/i.test(key)) {
+      record[key] = item.trim().toLowerCase();
+    } else {
+      record[key] = normalizeEmailFields(item);
+    }
+  }
+  return record;
+}
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true, bodyParser: false });
@@ -16,6 +30,10 @@ async function bootstrap() {
   app.getHttpAdapter().getInstance().set('trust proxy', 1);
   app.use(json({ limit: '12mb' }));
   app.use(urlencoded({ extended: true, limit: '12mb' }));
+  app.use((request: Request, _response: Response, next: NextFunction) => {
+    if (request.body) normalizeEmailFields(request.body);
+    next();
+  });
   app.use(helmet({ contentSecurityPolicy: false }));
   app.enableCors({
     origin: config.get<string[]>('corsOrigins') ?? [],

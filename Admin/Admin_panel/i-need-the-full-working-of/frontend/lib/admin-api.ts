@@ -88,6 +88,7 @@ export type DbStudent = {
   sender_email?: string | null;
   company_email?: string | null;
   portfolio_url?: string | null;
+  photo_data_url?: string | null;
   education_summary?: Array<{ level: string; year_from: string; year_to: string; score: string }>;
 };
 

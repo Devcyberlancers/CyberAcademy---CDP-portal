@@ -204,7 +204,7 @@ export class StudentPortalService {
   }
 
   async saveProfile(dto: StudentProfileDto) {
-    const email = dto.email.toLowerCase();
+    const email = dto.email.trim().toLowerCase();
     let education: Array<Record<string, unknown>> = [];
     try { const parsed = JSON.parse(dto.education_json || '[]'); education = Array.isArray(parsed) ? parsed : []; } catch { education = []; }
     const educationComplete = (level: string) => {

@@ -20,6 +20,7 @@ export type StudentRecord = {
   branch?: string;
   batch?: string;
   portfolioUrl?: string;
+  photoDataUrl?: string;
   educationSummary?: Array<{ level: string; year_from: string; year_to: string; score: string }>;
   notes?: string[];
 };
@@ -116,6 +117,7 @@ function studentFromDb(student: DbStudent): StudentRecord {
     branch: student.branch ?? undefined,
     batch: student.batch ?? undefined,
     portfolioUrl: student.portfolio_url ?? undefined,
+    photoDataUrl: student.photo_data_url ?? undefined,
     educationSummary: student.education_summary ?? [],
     notes: ["Loaded from MySQL database."]
   };

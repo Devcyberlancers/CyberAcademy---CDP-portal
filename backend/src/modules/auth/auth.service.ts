@@ -88,7 +88,7 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto) {
-    const email = dto.email.toLowerCase();
+    const email = dto.email.trim().toLowerCase();
     const pendingHash = await bcrypt.hash(randomBytes(32).toString('base64url'), 12);
     const otp = randomInt(0, 1_000_000).toString().padStart(6, '0');
     try {
@@ -203,7 +203,7 @@ export class AuthService {
   }
 
   async verifyOtp(dto: VerifyOtpDto) {
-    const email = dto.email.toLowerCase();
+    const email = dto.email.trim().toLowerCase();
     const otp = dto.otp.trim();
     if (!/^\d{6}$/.test(otp)) throw new UnprocessableEntityException('OTP must be 6 digits');
     const record = await this.prisma.email_otps.findFirst({
@@ -232,7 +232,7 @@ export class AuthService {
   }
 
   async resendOtp(emailInput: string) {
-    const email = emailInput.toLowerCase();
+    const email = emailInput.trim().toLowerCase();
     const user = await this.prisma.users.findUnique({ where: { email } });
     if (!user) throw new NotFoundException('Account not found');
     if (user.is_active) return { ok: true, message: 'Account is already active' };
@@ -267,7 +267,7 @@ export class AuthService {
   }
 
   async requestPasswordReset(emailInput: string) {
-    const email = emailInput.toLowerCase();
+    const email = emailInput.trim().toLowerCase();
     const user = await this.prisma.users.findUnique({ where: { email } });
     if (!user) throw new NotFoundException('No account exists for this email. Register first, then try forgot password.');
     const token = randomBytes(32).toString('base64url');
@@ -309,7 +309,7 @@ export class AuthService {
     if (!configured || !setupToken || !this.hashMatches(this.hashSecret(setupToken), this.hashSecret(configured))) {
       throw new ForbiddenException('A valid administrator setup token is required');
     }
-    const email = emailInput.toLowerCase();
+    const email = emailInput.trim().toLowerCase();
     const existing = await this.prisma.admin_users.findUnique({ where: { email } });
     if (existing) throw new ConflictException('An admin account already exists for this email');
     const passwordHash = await bcrypt.hash(password, 12);
@@ -342,7 +342,7 @@ export class AuthService {
   }
 
   async requestAdminReset(emailInput: string) {
-    const email = emailInput.toLowerCase();
+    const email = emailInput.trim().toLowerCase();
     const admin = await this.prisma.admin_users.findUnique({ where: { email } });
     if (admin) {
       const token = randomBytes(32).toString('base64url');

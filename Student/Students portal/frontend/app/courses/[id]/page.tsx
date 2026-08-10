@@ -55,6 +55,7 @@ export default function StudentCoursePage({ params }: { params: Promise<{ id: st
   const [quizAnswers, setQuizAnswers] = useState<Record<string, string>>({});
   const [quizError, setQuizError] = useState("");
   const [quizResult, setQuizResult] = useState<{ score: number; passed: boolean } | null>(null);
+  const [activeModuleIndex, setActiveModuleIndex] = useState(0);
 
   useEffect(() => {
     void params.then(({ id }) => setCourseId(id));
@@ -82,6 +83,8 @@ export default function StudentCoursePage({ params }: { params: Promise<{ id: st
   const description = data.course.metadata?.description || data.course.heading || "Course content published by your administrator.";
   const completedModules = data.modules.filter((module) => module.completed).length;
   const courseProgress = data.modules.length ? Math.round((completedModules / data.modules.length) * 100) : 0;
+  const activeModule = data.modules[Math.min(activeModuleIndex, Math.max(0, data.modules.length - 1))];
+  const activeModulePosition = Math.min(activeModuleIndex, Math.max(0, data.modules.length - 1));
 
   async function markVideoComplete(moduleIndex: number) {
     const token = window.localStorage.getItem("cyber-academy-auth-token");
@@ -140,81 +143,21 @@ export default function StudentCoursePage({ params }: { params: Promise<{ id: st
           </div>
         </section>
 
-        <section className="mt-7">
-          <h2 className="flex items-center gap-2 text-2xl font-bold"><BookOpen size={24} /> Course modules</h2>
-          {data.modules.length ? (
-            <div className="mt-4 grid gap-5">
-              {data.modules.map((module, moduleIndex) => (
-                <article key={`${module.title}-${moduleIndex}`} className="rounded-2xl border border-[#dfe4f2] bg-white p-6 shadow-sm">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-semibold text-[#3155ff]">Module {moduleIndex + 1}</p>
-                      <h3 className="mt-1 text-xl font-bold">{module.title || `Module ${moduleIndex + 1}`}</h3>
-                    </div>
-                    {!module.accessible ? <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700"><Lock size={13} /> Complete previous module</span> : module.completed ? <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700"><CheckCircle2 size={13} /> Completed</span> : null}
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs font-semibold"><div className={`rounded-md p-2 ${module.videoCompleted ? "bg-emerald-50 text-emerald-700" : "bg-slate-50 text-slate-500"}`}>Video<br />{module.videoCompleted ? "Done" : "Pending"}</div><div className={`rounded-md p-2 ${module.quizPassed ? "bg-emerald-50 text-emerald-700" : "bg-slate-50 text-slate-500"}`}>Quiz<br />{module.generatedQuestions?.length ? module.quizPassed ? "Passed" : "Pending" : "Not required"}</div><div className={`rounded-md p-2 ${module.completed ? "bg-emerald-50 text-emerald-700" : "bg-slate-50 text-slate-500"}`}>Module<br />{module.completed ? "Complete" : "In progress"}</div></div>
-
-                  {!module.accessible ? <p className="mt-5 rounded-lg bg-[#fff8e8] px-4 py-3 text-sm font-semibold text-amber-800">This module opens automatically once you complete the required video and quiz in the previous module.</p> : <>
-
-                  {module.imageUrl ? <img src={module.imageUrl} alt="" className="mt-5 max-h-80 w-full rounded-xl object-cover" /> : null}
-
-                  {module.videoUrl ? (
-                    <div className="mt-5 aspect-video overflow-hidden rounded-xl bg-black">
-                      <iframe
-                        src={youtubeEmbedUrl(module.videoUrl)}
-                        title={`${module.title || "Module"} video`}
-                        className="h-full w-full"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                        allowFullScreen
-                      />
-                    </div>
-                  ) : module.uploadedVideoUrl ? (
-                    <video controls className="mt-5 w-full rounded-xl bg-black" src={module.uploadedVideoUrl}>
-                      Your browser does not support this video.
-                    </video>
-                  ) : null}
-
-                  <div className="mt-5 flex flex-wrap gap-3">
-                    {module.videoUrl ? (
-                      <a href={module.videoUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-lg bg-[#3155ff] px-4 py-2.5 font-semibold text-white">
-                        <PlayCircle size={18} /> Watch on YouTube <ExternalLink size={15} />
-                      </a>
-                    ) : module.uploadedVideoUrl ? (
-                      <a href={module.uploadedVideoUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-lg bg-[#eef2ff] px-4 py-2.5 font-semibold text-[#3155ff]"><PlayCircle size={18} /> {module.uploadedVideoName || "Open teaching video"}</a>
-                    ) : null}
-                  </div>
-
-                  {(module.videoUrl || module.uploadedVideoUrl) && !module.videoCompleted ? <button type="button" disabled={completing === moduleIndex} onClick={() => void markVideoComplete(moduleIndex)} className="mt-3 rounded-lg border border-[#3155ff] px-4 py-2.5 font-semibold text-[#3155ff] disabled:opacity-50">{completing === moduleIndex ? "Saving…" : "Mark video as completed"}</button> : null}
-
-                  {module.resources?.length ? (
-                    <div className="mt-5">
-                      <h4 className="flex items-center gap-2 font-bold"><FileText size={17} /> Resources</h4>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {module.resources.map((resource) => isUrl(resource)
-                          ? <a key={resource} href={resource} target="_blank" rel="noreferrer" download={resource.startsWith("data:")} className="rounded-full bg-[#eef2ff] px-3 py-1.5 text-sm font-semibold text-[#3155ff] underline">Open or download resource <ExternalLink className="ml-1 inline" size={13} /></a>
-                          : <span key={resource} className="rounded-full bg-[#f2f4f8] px-3 py-1.5 text-sm font-semibold">{resource}</span>)}
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {module.generatedQuestions?.length ? (
-                    <div className="mt-6 border-t border-[#edf0f5] pt-5">
-                      <h4 className="flex items-center gap-2 font-bold"><ClipboardCheck size={18} /> {module.quiz || "Module quiz"}</h4>
-                      <p className="mt-2 text-sm text-[#657083]">{module.generatedQuestions.length} protected questions. Start the linked assessment below to attempt this quiz.</p>
-                      <button type="button" onClick={() => startModuleQuiz(moduleIndex)} className="mt-3 inline-flex rounded-lg bg-[#3155ff] px-4 py-2.5 font-semibold text-white">{module.quizPassed ? "Quiz passed" : "Start module quiz"}</button>
-                    </div>
-                  ) : null}
-                  </>}
-                </article>
-              ))}
-            </div>
-          ) : (
-            <EmptyState message="No modules have been published for this course yet." />
-          )}
+        <section className="mt-6 grid gap-5 xl:grid-cols-[320px_minmax(0,1fr)]">
+          <aside className="rounded-2xl border border-[#dfe4f2] bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-3 border-b border-[#edf0f5] pb-4"><h2 className="flex items-center gap-2 text-lg font-bold"><BookOpen size={20} /> Course content</h2><span className="rounded-full bg-[#eef2ff] px-2.5 py-1 text-xs font-bold text-[#3155ff]">{completedModules}/{data.modules.length}</span></div>
+            <div className="mt-3 space-y-2">{data.modules.map((module, moduleIndex) => <button key={`${module.title}-${moduleIndex}`} type="button" disabled={!module.accessible} onClick={() => setActiveModuleIndex(moduleIndex)} className={`w-full rounded-xl border p-3 text-left transition ${activeModulePosition === moduleIndex ? "border-[#3155ff] bg-[#eef2ff]" : "border-transparent hover:bg-[#f6f8fc]"} ${!module.accessible ? "cursor-not-allowed opacity-55" : ""}`}><div className="flex items-start gap-3"><span className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs font-bold ${module.completed ? "bg-emerald-500 text-white" : module.accessible ? "bg-[#3155ff] text-white" : "bg-slate-200 text-slate-600"}`}>{module.completed ? <CheckCircle2 size={14} /> : module.accessible ? moduleIndex + 1 : <Lock size={13} />}</span><span className="min-w-0"><span className="block truncate text-sm font-bold text-[#07142f]">{module.title || `Module ${moduleIndex + 1}`}</span><span className="mt-1 block text-xs text-[#657083]">{module.completed ? "Completed" : module.accessible ? "Available" : "Locked"}</span></span></div></button>)}</div>
+          </aside>
+          <article className="min-w-0 rounded-2xl border border-[#dfe4f2] bg-white p-5 shadow-sm sm:p-7">
+            {activeModule ? <><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-sm font-bold text-[#3155ff]">Module {activeModulePosition + 1} of {data.modules.length}</p><h2 className="mt-1 text-2xl font-bold">{activeModule.title || `Module ${activeModulePosition + 1}`}</h2></div>{activeModule.completed ? <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700"><CheckCircle2 size={14} /> Completed</span> : <span className="rounded-full bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700">In progress</span>}</div>
+              {activeModule.imageUrl ? <img src={activeModule.imageUrl} alt="" className="mt-6 max-h-80 w-full rounded-xl object-cover" /> : null}
+              <div className="mt-6 grid gap-3 sm:grid-cols-3"><ProgressTile label="Learning content" complete={Boolean(activeModule.videoCompleted)} /><ProgressTile label="Module quiz" complete={Boolean(activeModule.quizPassed)} optional={!activeModule.generatedQuestions?.length} /><ProgressTile label="Module" complete={Boolean(activeModule.completed)} /></div>
+              {activeModule.resources?.length ? <div className="mt-7 border-t border-[#edf0f5] pt-5"><h3 className="flex items-center gap-2 font-bold"><FileText size={18} /> Learning resources</h3><div className="mt-3 flex flex-wrap gap-2">{activeModule.resources.map((resource) => isUrl(resource) ? <a key={resource} href={resource} target="_blank" rel="noreferrer" download={resource.startsWith("data:")} className="inline-flex items-center gap-2 rounded-lg bg-[#eef2ff] px-3 py-2 text-sm font-semibold text-[#3155ff]">Open resource <ExternalLink size={14} /></a> : <span key={resource} className="rounded-lg bg-[#f2f4f8] px-3 py-2 text-sm font-semibold">{resource}</span>)}</div></div> : <p className="mt-7 rounded-xl bg-[#f8fafc] p-4 text-sm text-[#657083]">Your administrator has not added downloadable learning resources for this module.</p>}
+              {!activeModule.videoCompleted && !activeModule.completed ? <button type="button" disabled={completing === activeModulePosition} onClick={() => void markVideoComplete(activeModulePosition)} className="mt-6 rounded-lg border border-[#3155ff] px-4 py-2.5 font-semibold text-[#3155ff] disabled:opacity-50">{completing === activeModulePosition ? "Saving…" : "Mark module content as completed"}</button> : null}
+              {activeModule.generatedQuestions?.length ? <div className="mt-7 border-t border-[#edf0f5] pt-5"><h3 className="flex items-center gap-2 font-bold"><ClipboardCheck size={18} /> {activeModule.quiz || "Module quiz"}</h3><p className="mt-2 text-sm text-[#657083]">Complete this quiz to unlock the next module. A score of at least 60% is required.</p><button type="button" disabled={!activeModule.videoCompleted && !activeModule.completed} onClick={() => startModuleQuiz(activeModulePosition)} className="mt-4 rounded-lg bg-[#3155ff] px-4 py-2.5 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">{activeModule.quizPassed ? "Review quiz" : "Start module quiz"}</button></div> : null}
+            </> : <EmptyState message="No modules have been published for this course yet." />}
+          </article>
         </section>
-
         <section className="mt-8">
           <h2 className="flex items-center gap-2 text-2xl font-bold"><ClipboardCheck size={24} /> Assessments</h2>
           {data.assessments.length ? (
@@ -251,6 +194,8 @@ export default function StudentCoursePage({ params }: { params: Promise<{ id: st
     </main>
   );
 }
+
+function ProgressTile({ label, complete, optional = false }: { label: string; complete: boolean; optional?: boolean }) { return <div className={`rounded-xl p-3 text-sm ${complete ? "bg-emerald-50 text-emerald-700" : "bg-slate-50 text-slate-600"}`}><p className="font-bold">{label}</p><p className="mt-1 text-xs">{optional ? "Not required" : complete ? "Complete" : "Pending"}</p></div>; }
 
 function EmptyState({ message }: { message: string }) {
   return <div className="mt-4 rounded-xl border border-dashed border-[#cfd6e3] bg-white px-6 py-10 text-center text-[#657083]">{message}</div>;
