@@ -103,7 +103,7 @@ function dbStatusToUi(status: string, profileStatus?: string | null): StudentSta
   return "New User";
 }
 
-function studentFromDb(student: DbStudent): StudentRecord {
+export function studentFromDb(student: DbStudent): StudentRecord {
   return {
     id: `DB-STU-${student.id}`,
     name: student.name,
@@ -166,8 +166,8 @@ export function AdminStoreProvider({ children }: { children: React.ReactNode }) 
         registrations?: RegistrationRecord[];
         activityLog?: string[];
       };
-      if (parsed.students) setStudents(parsed.students.filter((student) => !student.name.toLowerCase().includes("test student")));
-      if (parsed.registrations) setRegistrations(parsed.registrations.filter((registration) => !registration.name.toLowerCase().includes("test student")));
+      if (parsed.students) setStudents(parsed.students.filter((student) => typeof student?.name === "string" && !student.name.toLowerCase().includes("test student")));
+      if (parsed.registrations) setRegistrations(parsed.registrations.filter((registration) => typeof registration?.name === "string" && !registration.name.toLowerCase().includes("test student")));
       if (parsed.activityLog) setActivityLog(parsed.activityLog);
     } catch {
       window.localStorage.removeItem(storageKey);
@@ -220,7 +220,8 @@ export function AdminStoreProvider({ children }: { children: React.ReactNode }) 
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem(storageKey, JSON.stringify({ students, registrations, activityLog }));
+    const browserSafeStudents = students.map(({ photoDataUrl: _photo, resumeDataUrl: _resume, educationDetails: _education, ...student }) => student);
+    try { window.localStorage.setItem(storageKey, JSON.stringify({ students: browserSafeStudents, registrations, activityLog })); } catch { try { window.localStorage.removeItem(storageKey); } catch { /* MySQL remains authoritative */ } }
   }, [students, registrations, activityLog]);
 
   function addLog(message: string) {

@@ -354,6 +354,10 @@ export function getCourseStudentProgress(courseId: number | string) {
   );
 }
 
+export function getStudentProfileFromDb(studentId: number) {
+  return request<DbStudent>(`/api/admin/students/${studentId}/profile`);
+}
+
 export function getStudentLearningRecord(studentId: number) {
   return request<StudentLearningRecord>(`/api/admin/students/${studentId}/learning`);
 }

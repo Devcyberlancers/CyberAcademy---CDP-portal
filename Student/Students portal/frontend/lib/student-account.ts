@@ -47,7 +47,7 @@ export function markStudentPortalUpdated(email?: string, updatedAt = new Date().
   if (typeof window === "undefined") return;
   const studentEmail = (email || readStudentAccount().email).trim().toLowerCase();
   if (!studentEmail) return;
-  window.localStorage.setItem(`cyber-academy-last-updated:${studentEmail}`, updatedAt);
+  try { window.localStorage.setItem(`cyber-academy-last-updated:${studentEmail}`, updatedAt); } catch { /* optional cache */ }
   window.dispatchEvent(new CustomEvent(studentPortalUpdatedEvent, { detail: { email: studentEmail, updatedAt } }));
 }
 
@@ -102,9 +102,14 @@ export function readStudentAccount(): StudentAccount {
 }
 
 export function saveStudentAccount(account: StudentAccount) {
-  window.localStorage.setItem(studentAccountStorageKey, JSON.stringify(account));
+  const browserSafe: StudentAccount = { ...account, photoDataUrl: "", resumeDataUrl: "", education: (account.education || []).map((item) => ({ ...item, markscardDataUrl: "" })) };
+  try {
+    window.localStorage.setItem(studentAccountStorageKey, JSON.stringify(browserSafe));
+  } catch {
+    try { window.localStorage.removeItem(studentAccountStorageKey); window.localStorage.setItem(studentAccountStorageKey, JSON.stringify({ ...defaultStudentAccount, email: account.email, fullName: account.fullName, firstName: account.firstName })); }
+    catch { /* browser storage is optional; MySQL remains authoritative */ }
+  }
 }
-
 export async function fetchStudentProfile(email: string): Promise<StudentAccount | null> {
   if (!email) return null;
   const token = typeof window === "undefined" ? null : window.localStorage.getItem(authTokenStorageKey);

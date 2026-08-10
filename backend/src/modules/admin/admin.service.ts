@@ -493,7 +493,13 @@ export class AdminService {
 
   async students() {
     const rows = await this.prisma.student_profiles.findMany({ orderBy: [{ updated_at: 'desc' }, { id: 'desc' }] });
-    return Promise.all(rows.map((row) => this.profileResponse(row)));
+    return Promise.all(rows.map(async (row) => { const profile = await this.profileResponse(row); const { resume_data_url: omittedResume, education_details: omittedEducation, ...summary } = profile; void omittedResume; void omittedEducation; return summary; }));
+  }
+
+  async studentProfile(id: number) {
+    const profile = await this.prisma.student_profiles.findUnique({ where: { id } });
+    if (!profile) throw new NotFoundException('Student not found');
+    return this.profileResponse(profile);
   }
 
   async studentLearning(id: number) {

@@ -6,8 +6,8 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { ProgressBar } from "@/components/admin/ProgressBar";
 import { StudentProfilePreview } from "@/components/admin/StudentProfilePreview";
 import { SectionCard } from "@/components/admin/SectionCard";
-import { useAdminStore } from "@/lib/admin-store";
-import { getStudentLearningRecord, getStudentPortalAccess, listCoursesFromDb, listJobApplicationActivity, scheduleStudentDailyReminder, sendMessageToStudent, updateStudentPortalAccess, type AdminJobApplicationActivity, type DbCourse, type PortalAccessSettings, type StudentLearningAssessment, type StudentLearningRecord } from "@/lib/admin-api";
+import { studentFromDb, useAdminStore, type StudentRecord } from "@/lib/admin-store";
+import { getStudentLearningRecord, getStudentPortalAccess, getStudentProfileFromDb, listCoursesFromDb, listJobApplicationActivity, scheduleStudentDailyReminder, sendMessageToStudent, updateStudentPortalAccess, type AdminJobApplicationActivity, type DbCourse, type PortalAccessSettings, type StudentLearningAssessment, type StudentLearningRecord } from "@/lib/admin-api";
 import { Bell, BookOpen, BriefcaseBusiness, CheckCircle2, ClipboardCheck, LockKeyhole, Mail, ShieldCheck, ShieldOff, Trash2, UserCheck, X, XCircle } from "lucide-react";
 import { studentPortalUrl } from "@/lib/urls";
 
@@ -51,6 +51,7 @@ export default function StudentDetailPage() {
   const [adminActionNotice, setAdminActionNotice] = useState("");
   const [adminActionBusy, setAdminActionBusy] = useState(false);
   const [showProfilePreview, setShowProfilePreview] = useState(false);
+  const [fullProfile, setFullProfile] = useState<StudentRecord | null>(null);
 
   const student = students.find((item) => item.id === params.id || item.id === `DB-STU-${params.id}`);
   const registration = student ? registrations.find((item) => item.studentId === student.id) : undefined;
@@ -94,6 +95,7 @@ export default function StudentDetailPage() {
     }).catch(() => setJobApplications([]));
     void listCoursesFromDb().then(setDatabaseCourses).catch(() => setDatabaseCourses([]));
     void getStudentLearningRecord(databaseId).then(setLearningRecord).catch(() => setLearningRecord(null));
+    void getStudentProfileFromDb(databaseId).then((profile) => setFullProfile(studentFromDb(profile))).catch(() => setFullProfile(null));
   }, [registration?.dbStudentId, student]);
 
   useEffect(() => {
@@ -398,7 +400,7 @@ export default function StudentDetailPage() {
           </SectionCard>
         </div>
       </div>
-      {showProfilePreview ? <StudentProfilePreview student={student} learningRecord={learningRecord} jobs={jobApplications} onClose={() => setShowProfilePreview(false)} /> : null}
+      {showProfilePreview ? <StudentProfilePreview student={fullProfile ?? student} learningRecord={learningRecord} jobs={jobApplications} onClose={() => setShowProfilePreview(false)} /> : null}
       {selectedLearningCourse ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4" role="dialog" aria-modal="true" aria-label={`${selectedLearningCourse.title} details`} onMouseDown={(event) => { if (event.currentTarget === event.target) setSelectedLearningCourseId(null); }}>
           <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white shadow-2xl">

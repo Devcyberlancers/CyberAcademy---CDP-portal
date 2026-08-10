@@ -94,6 +94,7 @@ export class AdminController {
 
   @Get('students') students() { return this.service.students(); }
   @Get('students/overview') studentsOverview() { return this.service.studentsOverview(); }
+  @Get('students/:id/profile') studentProfile(@Param('id', ParseIntPipe) id: number) { return this.service.studentProfile(id); }
   @Get('students/:id/learning') studentLearning(@Param('id', ParseIntPipe) id: number) {
     return this.service.studentLearning(id);
   }
