@@ -20,6 +20,7 @@ type TestAttempt = {
   tabSwitches?: number;
   violations?: number;
   browser: string;
+  operatingSystem?: string;
   ipAddress: string;
 };
 type CourseAssessment = {
@@ -27,6 +28,7 @@ type CourseAssessment = {
   title: string;
   durationMinutes: number;
   maxAttempts: number;
+  resumeAllowed?: boolean;
   questionCount: number;
   attempts: TestAttempt[];
 };
@@ -137,12 +139,12 @@ export default function StudentCoursePage({ params }: { params: Promise<{ id: st
     setActiveQuizIndex(moduleIndex);
   }
 
-  async function submitModuleQuiz(metadata?: { startedAt: string; tabSwitches: number; browser: string }) {
+  async function submitModuleQuiz(metadata?: { startedAt: string; tabSwitches: number; browser: string; operatingSystem: string }) {
     if (activeQuizIndex === null) return;
     const token = window.localStorage.getItem("cyber-academy-auth-token");
     const response = await fetch(`${apiBaseUrl}/api/courses/${encodeURIComponent(courseId)}/modules/quiz-submit`, {
       method: "PUT", headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: JSON.stringify({ module_index: activeQuizIndex, answers: quizAnswers, started_at: metadata?.startedAt, tab_switches: metadata?.tabSwitches ?? 0, browser: metadata?.browser }),
+      body: JSON.stringify({ module_index: activeQuizIndex, answers: quizAnswers, started_at: metadata?.startedAt, tab_switches: metadata?.tabSwitches ?? 0, browser: metadata?.browser, operating_system: metadata?.operatingSystem }),
     });
     if (!response.ok) { setQuizError("Quiz submission failed. Please try again."); return; }
     setQuizResult(await response.json() as { score: number; passed: boolean });
@@ -176,21 +178,131 @@ function courseDate(value?: string) { if (!value) return "—"; const date = new
 function CourseAssessmentWorkspace({ assessments, courseProgress, onInstructions, onTakeTest }: { assessments: CourseAssessment[]; courseProgress: number; onInstructions: (assessment: CourseAssessment) => void; onTakeTest: (assessment: CourseAssessment) => void }) {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState(assessments[0]?.assignmentId || "");
+  const [activeTab, setActiveTab] = useState<"overview" | "attempts">("overview");
   const [attemptNumber, setAttemptNumber] = useState<number | null>(null);
   const visible = assessments.filter((item) => item.title.toLowerCase().includes(query.trim().toLowerCase()));
   const selected = assessments.find((item) => item.assignmentId === selectedId) || visible[0] || assessments[0];
   const attempts = selected?.attempts ?? [];
   const chosenAttempt = attempts.find((item) => item.attemptNumber === attemptNumber) || attempts[attempts.length - 1];
-  const completed = attempts.filter((item) => item.status !== "in_progress");
-  const scores = completed.map((item) => item.score);
+  const completedAttempts = attempts.filter((item) => item.status !== "in_progress");
+  const scores = completedAttempts.map((item) => Number(item.score) || 0);
   const average = scores.length ? scores.reduce((sum, score) => sum + score, 0) / scores.length : 0;
-  const exhausted = attempts.length >= (selected?.maxAttempts || 1);
-  useEffect(() => { if (selected && selected.assignmentId !== selectedId && !assessments.some((item) => item.assignmentId === selectedId)) setSelectedId(selected.assignmentId); }, [assessments, selected, selectedId]);
-  useEffect(() => { setAttemptNumber(null); }, [selectedId]);
+  const inProgress = attempts.some((item) => item.status === "in_progress");
+  const exhausted = !inProgress && attempts.length >= (selected?.maxAttempts || 1);
+  const actionLabel = inProgress ? "Resume Test" : completedAttempts.length ? "Retake Test" : "Take Test";
+
+  useEffect(() => {
+    if (selected && selected.assignmentId !== selectedId && !assessments.some((item) => item.assignmentId === selectedId)) {
+      setSelectedId(selected.assignmentId);
+    }
+  }, [assessments, selected, selectedId]);
+  useEffect(() => {
+    setAttemptNumber(null);
+    setActiveTab("overview");
+  }, [selectedId]);
+
   if (!selected) return null;
-  return <section className="mt-7 rounded-2xl bg-white p-4 shadow-sm sm:p-5"><div className="grid gap-5 xl:grid-cols-[32%_1fr]"><aside><label className="flex h-14 items-center gap-3 rounded-lg border border-[#e0e4ec] px-4 text-[#929bb0]"><Search size={24} /><input value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent text-lg outline-none" placeholder="Search" /></label><div className="mt-3 overflow-hidden rounded-lg border border-[#e4e7ee]"><div className="flex items-center justify-between border-b border-[#e4e7ee] p-4"><span className="text-lg font-bold">Course Tests</span><ProgressRing value={courseProgress} /></div><div className="max-h-[470px] overflow-y-auto p-3">{visible.length ? visible.map((item, index) => { const attempted=item.attempts.some((attempt)=>attempt.status!=="in_progress"); return <button key={item.assignmentId} type="button" onClick={() => setSelectedId(item.assignmentId)} className={`mb-2 w-full rounded-md p-3 text-left ${selected.assignmentId === item.assignmentId ? "bg-[#f0f2ff]" : "hover:bg-[#f7f8fc]"}`}>{attempted?<CheckCircle2 size={17} className="mr-2 inline text-emerald-600"/>:<span className="mr-2 inline-block h-3 w-3 rounded-full bg-slate-400"/>}<span className={`font-semibold ${attempted?"text-emerald-700":"text-[#44506b]"}`}>{index + 1}. {item.title}</span><span className="mt-2 block pl-6 text-sm text-[#68738a]">Questions: {item.questionCount} · {item.durationMinutes || "Unlimited"} min</span></button>; }) : <p className="p-4 text-sm text-[#657083]">No matching tests.</p>}</div></div></aside><article className="overflow-hidden rounded-lg border border-[#e4e7ee]"><header className="flex flex-wrap items-center justify-between gap-3 bg-[#f3f4ff] px-5 py-4"><h2 className="text-xl font-bold">{selected.title}</h2><div className="flex items-center gap-2"><button type="button" onClick={() => onInstructions(selected)} className="px-3 py-2 font-semibold text-[#3155ff]">View Instructions</button><button type="button" disabled={exhausted} onClick={() => onTakeTest(selected)} className="rounded-md bg-[#153998] px-4 py-2.5 font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-400">{attempts.length ? "Retake Test" : "Take Test"}</button></div></header><div className="flex items-center justify-between border-b border-[#e4e7ee]"><div className="flex"><span className="px-4 py-4 text-lg text-[#44506b]">Overview</span>{chosenAttempt?<span className="border-b-2 border-[#3155ff] bg-[#f1f3ff] px-4 py-4 text-lg font-semibold text-[#3155ff]">Attempt</span>:null}</div><div className="flex items-center gap-2 px-5 font-bold">{attempts.length?<select aria-label="Select attempt" value={chosenAttempt?.attemptNumber || ""} onChange={(event)=>setAttemptNumber(Number(event.target.value))} className="rounded-md border border-[#d7dce6] bg-white px-3 py-2 font-medium">{attempts.map((item)=><option key={item.attemptNumber} value={item.attemptNumber}>Attempt: {String(item.attemptNumber).padStart(2,"0")}</option>)}</select>:<span>Attempt: 00</span>}<span>of {String(selected.maxAttempts || 1).padStart(2,"0")}</span></div></div>{chosenAttempt?<div className="p-5 sm:p-8"><div className="mx-auto flex max-w-lg flex-wrap justify-center divide-x rounded-md border bg-[#f8f9fc] px-4 py-3 text-center"><span className="px-5">Time Spent <strong className="ml-2">{formatDuration(chosenAttempt.durationSeconds)}</strong></span><span className="px-5">Test Score <strong className="ml-2">{chosenAttempt.score.toFixed(0)} / 100</strong></span></div><div className="mt-6 overflow-x-auto rounded-lg border border-[#dfe4f2]"><table className="w-full min-w-[650px] text-left"><thead className="bg-[#e8ebff]"><tr><th className="p-4">Sections</th><th className="p-4">Score</th><th className="p-4">Average Score</th><th className="p-4">Top Score</th><th className="p-4">Least Score</th></tr></thead><tbody><tr><td className="p-4">{selected.title}</td><td className="p-4">{chosenAttempt.score.toFixed(2)}</td><td className="p-4">{average.toFixed(2)}</td><td className="p-4">{Math.max(...scores,chosenAttempt.score).toFixed(2)}</td><td className="p-4">{Math.min(...scores,chosenAttempt.score).toFixed(2)}</td></tr></tbody></table></div><p className="mt-7 text-center text-sm font-medium text-emerald-600">IP Address: {chosenAttempt.ipAddress || "Unavailable"} | Tab Switch: {chosenAttempt.tabSwitches ?? chosenAttempt.violations ?? 0} | Browser Used: {chosenAttempt.browser || "Unknown"}</p></div>:<div className="p-5"><p className="mb-6 text-center text-sm text-red-500">Start before the course end date</p><div className="overflow-x-auto rounded-lg border border-[#dfe4f2]"><table className="w-full min-w-[560px] text-left"><thead className="bg-[#e8ebff]"><tr><th className="p-4">SNo</th><th className="p-4">Name</th><th className="p-4">Questions</th><th className="p-4">Duration (Min)</th><th className="p-4">Marks</th></tr></thead><tbody><tr><td className="p-4">1</td><td className="p-4">{selected.title}</td><td className="p-4">{selected.questionCount}</td><td className="p-4">{selected.durationMinutes || "Unlimited"}</td><td className="p-4">100</td></tr></tbody></table></div></div>}</article></div></section>;
+
+  return (
+    <section className="mt-7 rounded-2xl bg-white p-4 shadow-sm sm:p-5">
+      <div className="grid gap-5 xl:grid-cols-[32%_1fr]">
+        <aside>
+          <label className="flex h-14 items-center gap-3 rounded-lg border border-[#e0e4ec] px-4 text-[#929bb0]">
+            <Search size={24} />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent text-lg outline-none" placeholder="Search" />
+          </label>
+          <div className="mt-3 overflow-hidden rounded-lg border border-[#e4e7ee]">
+            <div className="flex items-center justify-between border-b border-[#e4e7ee] p-4">
+              <span className="text-lg font-bold">Course Tests</span>
+              <ProgressRing value={courseProgress} />
+            </div>
+            <div className="max-h-[470px] overflow-y-auto p-3">
+              {visible.length ? visible.map((item, index) => {
+                const attempted = item.attempts.some((attempt) => attempt.status !== "in_progress");
+                return (
+                  <button key={item.assignmentId} type="button" onClick={() => setSelectedId(item.assignmentId)} className={`mb-2 w-full rounded-md p-3 text-left ${selected.assignmentId === item.assignmentId ? "bg-[#f0f2ff]" : "hover:bg-[#f7f8fc]"}`}>
+                    {attempted ? <CheckCircle2 size={17} className="mr-2 inline text-emerald-600" /> : <span className="mr-2 inline-block h-3 w-3 rounded-full bg-slate-400" />}
+                    <span className={`font-semibold ${attempted ? "text-emerald-700" : "text-[#44506b]"}`}>{index + 1}. {item.title}</span>
+                    <span className="mt-2 block pl-6 text-sm text-[#68738a]">Questions: {item.questionCount} � {item.durationMinutes || "Unlimited"} min</span>
+                  </button>
+                );
+              }) : <p className="p-4 text-sm text-[#657083]">No matching tests.</p>}
+            </div>
+          </div>
+        </aside>
+
+        <article className="overflow-hidden rounded-lg border border-[#e4e7ee]">
+          <header className="flex flex-wrap items-center justify-between gap-3 bg-[#f3f4ff] px-5 py-4">
+            <h2 className="text-xl font-bold">{selected.title}</h2>
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => onInstructions(selected)} className="px-3 py-2 font-semibold text-[#3155ff]">View Instructions</button>
+              <button type="button" disabled={exhausted} onClick={() => onTakeTest(selected)} className="rounded-md bg-[#153998] px-4 py-2.5 font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-400">{exhausted ? "Attempts Exhausted" : actionLabel}</button>
+            </div>
+          </header>
+
+          <div className="flex flex-wrap items-center justify-between border-b border-[#e4e7ee]">
+            <div className="flex" role="tablist" aria-label="Test details">
+              <button type="button" role="tab" aria-selected={activeTab === "overview"} onClick={() => setActiveTab("overview")} className={`px-5 py-4 text-lg ${activeTab === "overview" ? "border-b-2 border-[#3155ff] bg-[#f1f3ff] font-semibold text-[#3155ff]" : "text-[#44506b]"}`}>Overview</button>
+              <button type="button" role="tab" aria-selected={activeTab === "attempts"} onClick={() => setActiveTab("attempts")} className={`px-5 py-4 text-lg ${activeTab === "attempts" ? "border-b-2 border-[#3155ff] bg-[#f1f3ff] font-semibold text-[#3155ff]" : "text-[#44506b]"}`}>Attempts</button>
+            </div>
+            <div className="flex items-center gap-2 px-5 py-2 font-bold">
+              <span>{attempts.length} used</span>
+              <span>of {String(selected.maxAttempts || 1).padStart(2, "0")}</span>
+            </div>
+          </div>
+
+          {activeTab === "overview" ? (
+            <div className="p-5 sm:p-8">
+              <p className="mb-6 text-center text-sm text-[#657083]">Review the test details before starting or resuming an attempt.</p>
+              <div className="overflow-x-auto rounded-lg border border-[#dfe4f2]">
+                <table className="w-full min-w-[560px] text-left">
+                  <thead className="bg-[#e8ebff]"><tr><th className="p-4">SNo</th><th className="p-4">Name</th><th className="p-4">Questions</th><th className="p-4">Duration (Min)</th><th className="p-4">Marks</th></tr></thead>
+                  <tbody><tr><td className="p-4">1</td><td className="p-4">{selected.title}</td><td className="p-4">{selected.questionCount}</td><td className="p-4">{selected.durationMinutes || "Unlimited"}</td><td className="p-4">100</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          ) : chosenAttempt ? (
+            <div className="p-5 sm:p-8">
+              <div className="mb-6 flex justify-end">
+                <label className="flex items-center gap-2 text-sm font-semibold text-[#44506b]">
+                  Attempt
+                  <select aria-label="Select attempt" value={chosenAttempt.attemptNumber} onChange={(event) => setAttemptNumber(Number(event.target.value))} className="rounded-md border border-[#d7dce6] bg-white px-3 py-2 font-medium">
+                    {attempts.map((item) => <option key={item.attemptNumber} value={item.attemptNumber}>{String(item.attemptNumber).padStart(2, "0")}</option>)}
+                  </select>
+                </label>
+              </div>
+              <div className="mx-auto flex max-w-xl flex-wrap justify-center divide-x rounded-md border bg-[#f8f9fc] px-4 py-3 text-center">
+                <span className="px-5">Time Spent <strong className="ml-2">{formatDuration(chosenAttempt.durationSeconds)}</strong></span>
+                <span className="px-5">Test Score <strong className="ml-2">{Number(chosenAttempt.score || 0).toFixed(0)} / 100</strong></span>
+              </div>
+              <div className="mt-6 overflow-x-auto rounded-lg border border-[#dfe4f2]">
+                <table className="w-full min-w-[650px] text-left">
+                  <thead className="bg-[#e8ebff]"><tr><th className="p-4">Section</th><th className="p-4">Score</th><th className="p-4">Average Score</th><th className="p-4">Top Score</th><th className="p-4">Least Score</th></tr></thead>
+                  <tbody><tr><td className="p-4">{selected.title}</td><td className="p-4">{Number(chosenAttempt.score || 0).toFixed(2)}</td><td className="p-4">{average.toFixed(2)}</td><td className="p-4">{Math.max(...scores, Number(chosenAttempt.score) || 0).toFixed(2)}</td><td className="p-4">{Math.min(...scores, Number(chosenAttempt.score) || 0).toFixed(2)}</td></tr></tbody>
+                </table>
+              </div>
+              <dl className="mt-7 grid gap-3 rounded-lg border border-[#dfe4f2] bg-[#fbfcfe] p-4 text-sm sm:grid-cols-2">
+                <div><dt className="font-semibold text-[#657083]">IP Address</dt><dd className="mt-1 font-bold text-[#07142f]">{chosenAttempt.ipAddress || "Unavailable"}</dd></div>
+                <div><dt className="font-semibold text-[#657083]">Browser Used</dt><dd className="mt-1 font-bold text-[#07142f]">{chosenAttempt.browser || "Unknown"}</dd></div>
+                <div><dt className="font-semibold text-[#657083]">Operating System</dt><dd className="mt-1 font-bold text-[#07142f]">{chosenAttempt.operatingSystem || "Unknown"}</dd></div>
+                <div><dt className="font-semibold text-[#657083]">Tab Switches</dt><dd className="mt-1 font-bold text-[#07142f]">{chosenAttempt.tabSwitches ?? chosenAttempt.violations ?? 0}</dd></div>
+                <div><dt className="font-semibold text-[#657083]">Started</dt><dd className="mt-1 font-bold text-[#07142f]">{formatAttemptDate(chosenAttempt.startedAt)}</dd></div>
+                <div><dt className="font-semibold text-[#657083]">Status</dt><dd className="mt-1 font-bold capitalize text-[#07142f]">{(chosenAttempt.status || "completed").replaceAll("_", " ")}</dd></div>
+              </dl>
+            </div>
+          ) : (
+            <div className="grid min-h-[280px] place-items-center p-8 text-center text-[#657083]">
+              <div><ClipboardCheck className="mx-auto text-[#3155ff]" /><p className="mt-3 font-semibold">No attempts have been recorded for this test yet.</p></div>
+            </div>
+          )}
+        </article>
+      </div>
+    </section>
+  );
 }
+
 function formatDuration(seconds: number) { const safe=Math.max(0,Math.floor(seconds||0)); const hours=Math.floor(safe/3600); const minutes=Math.floor((safe%3600)/60); const secs=safe%60; return [hours,minutes,secs].map((part)=>String(part).padStart(2,"0")).join(":"); }
+function formatAttemptDate(value?: string | null) { if (!value) return "Unavailable"; const date = new Date(value); return Number.isNaN(date.getTime()) ? "Unavailable" : `${date.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" })} IST`; }
 function ProgressRing({ value }: { value: number }) { const safe = Math.max(0, Math.min(100, value)); const radius = 18; const circumference = 2 * Math.PI * radius; return <span className="relative grid h-12 w-12 shrink-0 place-items-center"><svg className="absolute inset-0 -rotate-90" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r={radius} fill="none" stroke="#e5e7eb" strokeWidth="4" /><circle cx="24" cy="24" r={radius} fill="none" stroke="#3155ff" strokeWidth="4" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={circumference * (1 - safe / 100)} /></svg><span className="text-[11px] font-bold">{safe}%</span></span>; }
 function ProgressTile({ label, complete, optional = false }: { label: string; complete: boolean; optional?: boolean }) { return <div className={`rounded-xl p-3 text-sm ${complete ? "bg-emerald-50 text-emerald-700" : "bg-slate-50 text-slate-600"}`}><p className="font-bold">{label}</p><p className="mt-1 text-xs">{optional ? "Not required" : complete ? "Complete" : "Pending"}</p></div>; }
 
@@ -210,10 +322,10 @@ function CourseMessage({ message }: { message: string }) {
   );
 }
 
-function CourseQuiz({ module, answers, onChoose, error, result, onSubmit, onClose }: { module?: CourseModule; answers: Record<string, string>; onChoose: (index: number, value: string) => void; error: string; result: { score: number; passed: boolean } | null; onSubmit: (metadata: { startedAt: string; tabSwitches: number; browser: string }) => void; onClose: () => void }) {
+function CourseQuiz({ module, answers, onChoose, error, result, onSubmit, onClose }: { module?: CourseModule; answers: Record<string, string>; onChoose: (index: number, value: string) => void; error: string; result: { score: number; passed: boolean } | null; onSubmit: (metadata: { startedAt: string; tabSwitches: number; browser: string; operatingSystem: string }) => void; onClose: () => void }) {
   const [current, setCurrent] = useState(0); const [bookmarked, setBookmarked] = useState<Set<number>>(() => new Set()); const [visited, setVisited] = useState<Set<number>>(() => new Set([0])); const startedAt = useRef(new Date().toISOString()); const tabSwitches = useRef(0); const questions = module?.generatedQuestions ?? []; const question = questions[current];
-  const submit = () => onSubmit({ startedAt: startedAt.current, tabSwitches: tabSwitches.current, browser: detectClientEnvironment().browser });
-  useEffect(() => { const block=(event:Event)=>event.preventDefault(); const keys=(event:KeyboardEvent)=>{if((event.ctrlKey||event.metaKey)&&["c","v","x","a"].includes(event.key.toLowerCase()))event.preventDefault();}; const hidden=()=>{if(document.hidden&&!result){tabSwitches.current+=1;onSubmit({ startedAt: startedAt.current, tabSwitches: tabSwitches.current, browser: detectClientEnvironment().browser });}}; document.addEventListener("copy",block);document.addEventListener("cut",block);document.addEventListener("paste",block);document.addEventListener("contextmenu",block);document.addEventListener("keydown",keys);document.addEventListener("visibilitychange",hidden);return()=>{document.removeEventListener("copy",block);document.removeEventListener("cut",block);document.removeEventListener("paste",block);document.removeEventListener("contextmenu",block);document.removeEventListener("keydown",keys);document.removeEventListener("visibilitychange",hidden);};},[onSubmit,result]);
+  const submit = () => { const environment = detectClientEnvironment(); onSubmit({ startedAt: startedAt.current, tabSwitches: tabSwitches.current, browser: environment.browser, operatingSystem: environment.os }); };
+  useEffect(() => { const block=(event:Event)=>event.preventDefault(); const keys=(event:KeyboardEvent)=>{if((event.ctrlKey||event.metaKey)&&["c","v","x","a"].includes(event.key.toLowerCase()))event.preventDefault();}; const hidden=()=>{if(document.hidden&&!result)tabSwitches.current+=1;}; document.addEventListener("copy",block);document.addEventListener("cut",block);document.addEventListener("paste",block);document.addEventListener("contextmenu",block);document.addEventListener("keydown",keys);document.addEventListener("visibilitychange",hidden);return()=>{document.removeEventListener("copy",block);document.removeEventListener("cut",block);document.removeEventListener("paste",block);document.removeEventListener("contextmenu",block);document.removeEventListener("keydown",keys);document.removeEventListener("visibilitychange",hidden);};},[result]);
   function go(index:number){const safe=Math.max(0,Math.min(questions.length-1,index));setCurrent(safe);setVisited((value)=>new Set(value).add(safe));} function toggle(){setBookmarked((value)=>{const next=new Set(value);if(next.has(current)) next.delete(current); else next.add(current); return next;});}
   if(result)return <section className="fixed inset-0 z-[90] grid place-items-center bg-[#f5f7fb] p-4"><div className="w-full max-w-xl rounded-xl bg-white p-8 text-center shadow"><h2 className="text-2xl font-bold">{result.passed?"Test passed":"Test not passed"}</h2><p className="mt-3">Score: {result.score}%. {result.passed?"The next module is now unlocked.":"You need 60% to unlock the next module."}</p><button onClick={onClose} className="mt-6 rounded bg-[#3155ff] px-5 py-3 font-bold text-white">Return to course</button></div></section>;
   if(!question)return null; const answered=Object.keys(answers).length;

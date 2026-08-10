@@ -110,12 +110,13 @@ export class AssessmentsService {
     };
   }
 
-  async assignments(email?: string) {
+  async assignments(email?: string, requestedAssignmentId?: string) {
     const collection = await this.prisma.assessment_collections.findUnique({ where: { storage_key: 'standalone' } });
     const current = collection ? JSON.parse(collection.payload) : [];
     const currentIds = Array.isArray(current) ? current.map((item: any) => this.nativeId('standalone', String(item.id || 'assessment'))) : [];
+    const assignmentIds = requestedAssignmentId ? [requestedAssignmentId] : currentIds;
     const rows = await this.prisma.assignment_security_settings.findMany({
-      where: { assignment_id: { in: currentIds }, published: true, active: true },
+      where: { assignment_id: { in: assignmentIds }, published: true, active: true },
       orderBy: { created_at: 'desc' },
     });
     const allAttempts = email && rows.length ? await this.prisma.assignment_attempts.findMany({

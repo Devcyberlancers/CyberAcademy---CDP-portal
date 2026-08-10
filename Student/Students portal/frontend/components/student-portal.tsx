@@ -1496,16 +1496,17 @@ function AssessmentsView() {
       setAcceptedRules(true);
       window.sessionStorage.removeItem(`cyber-academy-assessment-ready:${assignmentId}`);
     }
-    void loadAssessments(alive);
+    void loadAssessments(alive, assignmentId);
     return () => {
       alive = false;
     };
   }, []);
 
-  async function loadAssessments(alive = true) {
+  async function loadAssessments(alive = true, requestedAssignmentId = selectedAssignmentId) {
     try {
       const url = new URL("/api/assignments", apiBaseUrl);
       if (student.email) url.searchParams.set("email", student.email);
+      if (requestedAssignmentId) url.searchParams.set("assignment", requestedAssignmentId);
       const response = await fetch(url.toString());
       if (!response.ok) throw new Error("Unable to load assessments");
       const data = (await response.json()) as SecureAssessmentSummary[];

@@ -342,7 +342,7 @@ export class StudentPortalService {
 
   async submitModuleQuiz(
     courseId: number, email: string, moduleIndex: number, answers: Record<string, string>,
-    metadata: { startedAt?: string; tabSwitches?: number; browser?: string; ip?: string; userAgent?: string } = {},
+    metadata: { startedAt?: string; tabSwitches?: number; browser?: string; operatingSystem?: string; ip?: string; userAgent?: string } = {},
   ) {
     const modules = await this.snapshot(`course-editor-modules-${courseId}-v2`, []) as Array<Record<string, any>>;
     const module = modules[moduleIndex];
@@ -351,11 +351,11 @@ export class StudentPortalService {
     const correct = questions.filter((question, index) => String(answers[String(index)] ?? '').trim() === String(question.answer ?? '').trim()).length;
     const score = Math.round((correct / questions.length) * 100);
     const key = `course-progress:${courseId}:${email.toLowerCase()}`;
-    type QuizAttempt = { attemptNumber: number; startedAt: string; endedAt: string; durationSeconds: number; score: number; passed: boolean; tabSwitches: number; browser: string; ipAddress: string };
+    type QuizAttempt = { attemptNumber: number; startedAt: string; endedAt: string; durationSeconds: number; score: number; passed: boolean; tabSwitches: number; browser: string; operatingSystem: string; ipAddress: string };
     type QuizProgress = { score: number; passed: boolean; submitted_at: string; attempts?: QuizAttempt[] };
     const current = await this.snapshot(key, {}) as { videos?: number[]; quizzes?: Record<string, QuizProgress> };
     const previous = current.quizzes?.[String(moduleIndex)];
-    const attempts: QuizAttempt[] = previous?.attempts ? [...previous.attempts] : previous?.submitted_at ? [{ attemptNumber: 1, startedAt: previous.submitted_at, endedAt: previous.submitted_at, durationSeconds: 0, score: previous.score, passed: previous.passed, tabSwitches: 0, browser: 'Unknown', ipAddress: 'Unavailable' }] : [];
+    const attempts: QuizAttempt[] = previous?.attempts ? [...previous.attempts] : previous?.submitted_at ? [{ attemptNumber: 1, startedAt: previous.submitted_at, endedAt: previous.submitted_at, durationSeconds: 0, score: previous.score, passed: previous.passed, tabSwitches: 0, browser: 'Unknown', operatingSystem: 'Unknown', ipAddress: 'Unavailable' }] : [];
     const maxAttempts = Math.max(1, Math.min(20, Number(module.maxAttempts || 3)));
     if (attempts.length >= maxAttempts) throw new ConflictException('Maximum attempts reached for this test');
     const endedAt = new Date();
@@ -363,7 +363,7 @@ export class StudentPortalService {
     const startedAt = Number.isNaN(parsedStart.getTime()) || parsedStart > endedAt ? endedAt : parsedStart;
     const agent = metadata.userAgent || '';
     const detectedBrowser = agent.includes('Edg/') ? 'Microsoft Edge' : agent.includes('Chrome/') ? 'Chrome' : agent.includes('Firefox/') ? 'Firefox' : agent.includes('Safari/') ? 'Safari' : 'Browser';
-    const attempt: QuizAttempt = { attemptNumber: attempts.length + 1, startedAt: startedAt.toISOString(), endedAt: endedAt.toISOString(), durationSeconds: Math.max(0, Math.floor((endedAt.getTime() - startedAt.getTime()) / 1000)), score, passed: score >= 60, tabSwitches: Math.max(0, Number(metadata.tabSwitches) || 0), browser: metadata.browser?.trim() || detectedBrowser, ipAddress: metadata.ip?.trim() || 'Unavailable' };
+    const attempt: QuizAttempt = { attemptNumber: attempts.length + 1, startedAt: startedAt.toISOString(), endedAt: endedAt.toISOString(), durationSeconds: Math.max(0, Math.floor((endedAt.getTime() - startedAt.getTime()) / 1000)), score, passed: score >= 60, tabSwitches: Math.max(0, Number(metadata.tabSwitches) || 0), browser: metadata.browser?.trim() || detectedBrowser, operatingSystem: metadata.operatingSystem?.trim() || 'Unknown', ipAddress: metadata.ip?.trim() || 'Unavailable' };
     attempts.push(attempt);
     const quizzes = { ...(current.quizzes ?? {}), [String(moduleIndex)]: { score, passed: score >= 60, submitted_at: endedAt.toISOString(), attempts } };
     await this.prisma.admin_snapshots.upsert({ where: { key }, create: { key, payload: JSON.stringify({ videos: current.videos ?? [], quizzes }), updated_by: email, updated_at: endedAt }, update: { payload: JSON.stringify({ videos: current.videos ?? [], quizzes }), updated_by: email, updated_at: endedAt } });
@@ -398,7 +398,7 @@ export class StudentPortalService {
       previousComplete = accessible && required;
       const publicQuestions = questions.map((question: any) => ({ question: question.question, options: question.options }));
       const quizProgress = (progress as any)?.quizzes?.[String(index)];
-      return { ...module, generatedQuestions: publicQuestions, locked: !accessible, accessible, completed: required, videoCompleted, quizPassed, maxAttempts: Math.max(1, Math.min(20, Number(module.maxAttempts || 3))), quizAttempts: Array.isArray(quizProgress?.attempts) ? quizProgress.attempts : quizProgress?.submitted_at ? [{ attemptNumber: 1, startedAt: quizProgress.submitted_at, endedAt: quizProgress.submitted_at, durationSeconds: 0, score: quizProgress.score, passed: quizProgress.passed, tabSwitches: 0, browser: 'Unknown', ipAddress: 'Unavailable' }] : [] };
+      return { ...module, generatedQuestions: publicQuestions, locked: !accessible, accessible, completed: required, videoCompleted, quizPassed, maxAttempts: Math.max(1, Math.min(20, Number(module.maxAttempts || 3))), quizAttempts: Array.isArray(quizProgress?.attempts) ? quizProgress.attempts : quizProgress?.submitted_at ? [{ attemptNumber: 1, startedAt: quizProgress.submitted_at, endedAt: quizProgress.submitted_at, durationSeconds: 0, score: quizProgress.score, passed: quizProgress.passed, tabSwitches: 0, browser: 'Unknown', operatingSystem: 'Unknown', ipAddress: 'Unavailable' }] : [] };
     });
     return {
       course: {
@@ -414,12 +414,14 @@ export class StudentPortalService {
         title: item.assignment_title,
         durationMinutes: item.duration_minutes,
         maxAttempts: item.max_attempts,
+        resumeAllowed: item.resume_allowed,
         questionCount: Array.isArray(item.questions_json) ? item.questions_json.length : 0,
         attempts: assessmentAttempts.filter((attempt) => attempt.assignment_id === item.assignment_id).map((attempt) => ({
           attemptNumber: attempt.attempt_number, startedAt: attempt.started_at, endedAt: attempt.ended_at,
           durationSeconds: Math.max(0, Math.floor(((attempt.ended_at ?? new Date()).getTime() - attempt.started_at.getTime()) / 1000)),
           score: attempt.score, passed: attempt.status === 'completed', tabSwitches: attempt.violations,
-          browser: attempt.browser || 'Unknown', ipAddress: attempt.ip_address || 'Unavailable', status: attempt.status,
+          browser: attempt.browser || 'Unknown', operatingSystem: attempt.operating_system || 'Unknown',
+          ipAddress: attempt.ip_address || 'Unavailable', status: attempt.status,
         })),
       })),
     };

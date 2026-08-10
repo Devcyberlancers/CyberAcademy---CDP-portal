@@ -30,7 +30,9 @@ export class AdminAssessmentsController {
 @Controller('api/assignments')
 export class AssessmentsController {
   constructor(private readonly service: AssessmentsService) {}
-  @Get() assignments(@Query('email') email?: string) { return this.service.assignments(email); }
+  @Get() assignments(@Query('email') email?: string, @Query('assignment') assignment?: string) {
+    return this.service.assignments(email, assignment);
+  }
   @Post(':assignment/start') async start(
     @Param('assignment') assignment: string, @Body() dto: StartAttemptDto, @Ip() ip: string,
     @Headers('user-agent') userAgent: string, @Res({ passthrough: true }) response: Response,

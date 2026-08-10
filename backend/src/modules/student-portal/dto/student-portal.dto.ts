@@ -77,6 +77,10 @@ export class ModuleQuizSubmissionDto {
   @IsOptional()
   @IsString()
   browser?: string;
+
+  @IsOptional()
+  @IsString()
+  operating_system?: string;
 }
 
 export class JobQueryDto {
