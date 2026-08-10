@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Card } from "@/components/ui";
+import { DashboardShell, type StudentSection } from "@/components/dashboard-shell";
+import { defaultStudentAccount, readStudentAccount, type StudentAccount } from "@/lib/student-account";
 import { statusForJob, syncJobApplicationsFromDatabase, writeJobApplication, type JobApplicationStatus } from "@/lib/job-applications";
 import { rememberRecentJob } from "@/lib/recent-jobs";
 
@@ -34,6 +36,10 @@ export default function JobDetailPage() {
   const [status, setStatus] = useState<JobApplicationStatus>("not_applied");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [student, setStudent] = useState<StudentAccount>(defaultStudentAccount);
+  const [searchValue, setSearchValue] = useState("");
+
+  useEffect(() => { setStudent(readStudentAccount()); }, []);
 
   useEffect(() => {
     if (!jobId) return;
@@ -88,6 +94,7 @@ export default function JobDetailPage() {
   }
 
   return (
+    <DashboardShell activeSection="jobs" onSectionChange={(section: StudentSection) => { window.location.href = `/dashboard/student?section=${encodeURIComponent(section)}`; }} searchValue={searchValue} onSearchValueChange={setSearchValue} onSearchSubmit={() => { window.location.href = `/dashboard/student?section=jobs&search=${encodeURIComponent(searchValue.trim())}`; }} student={student}>
     <main className="min-h-screen bg-[#f6f8fc] px-3 py-5 text-[#07142f] sm:px-5 lg:px-7">
       <div className="w-full">
         <Link href="/dashboard/student" className="mb-5 inline-flex items-center gap-2 text-sm font-semibold text-[#3155ff]">
@@ -162,6 +169,7 @@ export default function JobDetailPage() {
         )}
       </div>
     </main>
+    </DashboardShell>
   );
 }
 
