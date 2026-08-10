@@ -330,33 +330,44 @@ export class StudentPortalService {
   async completeModuleVideo(courseId: number, email: string, moduleIndex: number) {
     if (!Number.isInteger(moduleIndex) || moduleIndex < 0 || moduleIndex > 500) throw new BadRequestException('Invalid module index');
     const key = `course-progress:${courseId}:${email.toLowerCase()}`;
-    const current = await this.snapshot(key, {}) as { videos?: number[] };
+    const current = await this.snapshot(key, {}) as { videos?: number[]; quizzes?: Record<string, unknown> };
     const videos = new Set(Array.isArray(current.videos) ? current.videos : []);
     videos.add(moduleIndex);
     await this.prisma.admin_snapshots.upsert({
-      where: { key }, create: { key, payload: JSON.stringify({ videos: [...videos] }), updated_by: email, updated_at: new Date() },
-      update: { payload: JSON.stringify({ videos: [...videos] }), updated_by: email, updated_at: new Date() },
+      where: { key }, create: { key, payload: JSON.stringify({ ...current, videos: [...videos] }), updated_by: email, updated_at: new Date() },
+      update: { payload: JSON.stringify({ ...current, videos: [...videos] }), updated_by: email, updated_at: new Date() },
     });
     return { completed: true, module_index: moduleIndex };
   }
 
-  async submitModuleQuiz(courseId: number, email: string, moduleIndex: number, answers: Record<string, string>) {
+  async submitModuleQuiz(
+    courseId: number, email: string, moduleIndex: number, answers: Record<string, string>,
+    metadata: { startedAt?: string; tabSwitches?: number; browser?: string; ip?: string; userAgent?: string } = {},
+  ) {
     const modules = await this.snapshot(`course-editor-modules-${courseId}-v2`, []) as Array<Record<string, any>>;
     const module = modules[moduleIndex];
-    if (!module || !Array.isArray(module.generatedQuestions) || !module.generatedQuestions.length) {
-      throw new NotFoundException('Module quiz not found');
-    }
+    if (!module || !Array.isArray(module.generatedQuestions) || !module.generatedQuestions.length) throw new NotFoundException('Module quiz not found');
     const questions = module.generatedQuestions;
     const correct = questions.filter((question, index) => String(answers[String(index)] ?? '').trim() === String(question.answer ?? '').trim()).length;
     const score = Math.round((correct / questions.length) * 100);
     const key = `course-progress:${courseId}:${email.toLowerCase()}`;
-    const current = await this.snapshot(key, {}) as { videos?: number[]; quizzes?: Record<string, { score: number; passed: boolean; submitted_at: string }> };
-    const quizzes = { ...(current.quizzes ?? {}), [String(moduleIndex)]: { score, passed: score >= 60, submitted_at: new Date().toISOString() } };
-    await this.prisma.admin_snapshots.upsert({
-      where: { key }, create: { key, payload: JSON.stringify({ videos: current.videos ?? [], quizzes }), updated_by: email, updated_at: new Date() },
-      update: { payload: JSON.stringify({ videos: current.videos ?? [], quizzes }), updated_by: email, updated_at: new Date() },
-    });
-    return { submitted: true, score, passed: score >= 60, required_score: 60 };
+    type QuizAttempt = { attemptNumber: number; startedAt: string; endedAt: string; durationSeconds: number; score: number; passed: boolean; tabSwitches: number; browser: string; ipAddress: string };
+    type QuizProgress = { score: number; passed: boolean; submitted_at: string; attempts?: QuizAttempt[] };
+    const current = await this.snapshot(key, {}) as { videos?: number[]; quizzes?: Record<string, QuizProgress> };
+    const previous = current.quizzes?.[String(moduleIndex)];
+    const attempts: QuizAttempt[] = previous?.attempts ? [...previous.attempts] : previous?.submitted_at ? [{ attemptNumber: 1, startedAt: previous.submitted_at, endedAt: previous.submitted_at, durationSeconds: 0, score: previous.score, passed: previous.passed, tabSwitches: 0, browser: 'Unknown', ipAddress: 'Unavailable' }] : [];
+    const maxAttempts = Math.max(1, Math.min(20, Number(module.maxAttempts || 3)));
+    if (attempts.length >= maxAttempts) throw new ConflictException('Maximum attempts reached for this test');
+    const endedAt = new Date();
+    const parsedStart = metadata.startedAt ? new Date(metadata.startedAt) : endedAt;
+    const startedAt = Number.isNaN(parsedStart.getTime()) || parsedStart > endedAt ? endedAt : parsedStart;
+    const agent = metadata.userAgent || '';
+    const detectedBrowser = agent.includes('Edg/') ? 'Microsoft Edge' : agent.includes('Chrome/') ? 'Chrome' : agent.includes('Firefox/') ? 'Firefox' : agent.includes('Safari/') ? 'Safari' : 'Browser';
+    const attempt: QuizAttempt = { attemptNumber: attempts.length + 1, startedAt: startedAt.toISOString(), endedAt: endedAt.toISOString(), durationSeconds: Math.max(0, Math.floor((endedAt.getTime() - startedAt.getTime()) / 1000)), score, passed: score >= 60, tabSwitches: Math.max(0, Number(metadata.tabSwitches) || 0), browser: metadata.browser?.trim() || detectedBrowser, ipAddress: metadata.ip?.trim() || 'Unavailable' };
+    attempts.push(attempt);
+    const quizzes = { ...(current.quizzes ?? {}), [String(moduleIndex)]: { score, passed: score >= 60, submitted_at: endedAt.toISOString(), attempts } };
+    await this.prisma.admin_snapshots.upsert({ where: { key }, create: { key, payload: JSON.stringify({ videos: current.videos ?? [], quizzes }), updated_by: email, updated_at: endedAt }, update: { payload: JSON.stringify({ videos: current.videos ?? [], quizzes }), updated_by: email, updated_at: endedAt } });
+    return { submitted: true, score, passed: score >= 60, required_score: 60, attempt, attemptsUsed: attempts.length, maxAttempts };
   }
 
   async courseContent(courseId: number, email: string) {
@@ -364,7 +375,7 @@ export class StudentPortalService {
     if (!course || !['active', 'published'].includes(course.status)) {
       throw new NotFoundException('Published course not found');
     }
-    const [modules, banner, settings, assessments, progress] = await Promise.all([
+    const [modules, banner, settings, assessments, progress, assessmentAttempts] = await Promise.all([
       this.snapshot(`course-editor-modules-${courseId}-v2`, []),
       this.snapshot(`course-editor-banner-${courseId}-v1`, {}),
       this.snapshot(`course-settings-${courseId}-v1`, {}),
@@ -373,6 +384,7 @@ export class StudentPortalService {
         orderBy: { created_at: 'asc' },
       }),
       this.snapshot(`course-progress:${courseId}:${email.toLowerCase()}`, {}),
+      this.prisma.assignment_attempts.findMany({ where: { assignment_id: { startsWith: `course:${courseId}:` }, student_email: email.toLowerCase() }, orderBy: { started_at: 'asc' } }),
     ]);
     const moduleList = Array.isArray(modules) ? modules as Array<Record<string, any>> : [];
     const watched = new Set(Array.isArray((progress as any)?.videos) ? (progress as any).videos : []);
@@ -385,7 +397,8 @@ export class StudentPortalService {
       const required = module.unlockRule === 'manual' ? true : quizPassed;
       previousComplete = accessible && required;
       const publicQuestions = questions.map((question: any) => ({ question: question.question, options: question.options }));
-      return { ...module, generatedQuestions: publicQuestions, locked: !accessible, accessible, completed: required, videoCompleted, quizPassed };
+      const quizProgress = (progress as any)?.quizzes?.[String(index)];
+      return { ...module, generatedQuestions: publicQuestions, locked: !accessible, accessible, completed: required, videoCompleted, quizPassed, maxAttempts: Math.max(1, Math.min(20, Number(module.maxAttempts || 3))), quizAttempts: Array.isArray(quizProgress?.attempts) ? quizProgress.attempts : quizProgress?.submitted_at ? [{ attemptNumber: 1, startedAt: quizProgress.submitted_at, endedAt: quizProgress.submitted_at, durationSeconds: 0, score: quizProgress.score, passed: quizProgress.passed, tabSwitches: 0, browser: 'Unknown', ipAddress: 'Unavailable' }] : [] };
     });
     return {
       course: {
@@ -402,6 +415,12 @@ export class StudentPortalService {
         durationMinutes: item.duration_minutes,
         maxAttempts: item.max_attempts,
         questionCount: Array.isArray(item.questions_json) ? item.questions_json.length : 0,
+        attempts: assessmentAttempts.filter((attempt) => attempt.assignment_id === item.assignment_id).map((attempt) => ({
+          attemptNumber: attempt.attempt_number, startedAt: attempt.started_at, endedAt: attempt.ended_at,
+          durationSeconds: Math.max(0, Math.floor(((attempt.ended_at ?? new Date()).getTime() - attempt.started_at.getTime()) / 1000)),
+          score: attempt.score, passed: attempt.status === 'completed', tabSwitches: attempt.violations,
+          browser: attempt.browser || 'Unknown', ipAddress: attempt.ip_address || 'Unavailable', status: attempt.status,
+        })),
       })),
     };
   }

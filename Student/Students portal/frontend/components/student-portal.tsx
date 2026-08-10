@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Bookmark, Calendar, ChevronDown, ChevronLeft, ChevronRight, ClipboardCheck, Filter, IdCard, Loader2, MapPin, RefreshCw, Search, ShieldCheck, Sparkles, TerminalSquare, UserRound } from "lucide-react";
+import { Bookmark, Calendar, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ClipboardCheck, Filter, IdCard, Loader2, MapPin, RefreshCw, Search, ShieldCheck, Sparkles, TerminalSquare, UserRound } from "lucide-react";
 import { DashboardShell, type StudentSection } from "@/components/dashboard-shell";
 import { Card } from "@/components/ui";
 import {
@@ -1739,10 +1739,11 @@ function AssessmentsView() {
                     <span>{assessment.remainingAttempts} attempts remaining</span>
                   </div>
                   {assessment.latestAttemptStatus && (
-                    <p className="mt-4 rounded-lg bg-[#f8fafc] px-3 py-2 text-xs font-medium capitalize text-[#596273]">
-                      Latest status: {assessment.latestAttemptStatus.replace("_", " ")}
+                    <p className="mt-4 inline-flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold capitalize text-emerald-700">
+                      <CheckCircle2 size={15} /> Latest status: {assessment.latestAttemptStatus.replace("_", " ")}
                     </p>
                   )}
+                  <AssessmentAttemptHistory attempts={assessment.attempts || []} />
                   <button
                     type="button"
                     disabled={!acceptedRules || isStarting || !assessment.canStart}
@@ -1777,11 +1778,22 @@ function assessmentButtonLabel(assessment: SecureAssessmentSummary) {
     return "You already took the test";
   }
   if (assessment.attemptsUsed > 0) {
-    return `Start Attempt ${assessment.attemptsUsed + 1}`;
+    return "Retake Test";
   }
   return "Enter Fullscreen & Begin";
 }
 
+function AssessmentAttemptHistory({ attempts }: { attempts: SecureAssessmentSummary["attempts"] }) {
+  const [number, setNumber] = useState(attempts[attempts.length - 1]?.attemptNumber || 0);
+  const selected = attempts.find((item) => item.attemptNumber === number) || attempts[attempts.length - 1];
+  if (!selected) return null;
+  return <div className="mt-4 rounded-lg border border-[#e1e5ee] bg-[#fafbfe] p-3 text-xs text-[#566075]">
+    <div className="flex items-center justify-between gap-3"><strong className="text-[#07142f]">Attempt result</strong><select value={selected.attemptNumber} onChange={(event)=>setNumber(Number(event.target.value))} className="rounded border bg-white px-2 py-1.5">{attempts.map((item)=><option key={item.attemptNumber} value={item.attemptNumber}>Attempt {String(item.attemptNumber).padStart(2,"0")}</option>)}</select></div>
+    <div className="mt-3 grid grid-cols-2 gap-2"><span>Score: <strong>{selected.score}/100</strong></span><span>Time: <strong>{formatAssessmentDuration(selected.durationSeconds)}</strong></span><span>Tab switches: <strong>{selected.violations}</strong></span><span>Browser: <strong>{selected.browser || "Unknown"}</strong></span></div>
+    <p className="mt-2 truncate">IP: {selected.ipAddress || "Unavailable"}</p>
+  </div>;
+}
+function formatAssessmentDuration(seconds: number) { const safe=Math.max(0,Math.floor(seconds||0)); return [Math.floor(safe/3600),Math.floor((safe%3600)/60),safe%60].map((part)=>String(part).padStart(2,"0")).join(":"); }
 function EndTestConfirmation({ attempt, answers, onCancel, onConfirm }: { attempt: SecureAttempt; answers: Record<string, string>; onCancel: () => void; onConfirm: () => void }) {
   const [confirmation, setConfirmation] = useState("");
   const answered = Object.keys(answers).length;

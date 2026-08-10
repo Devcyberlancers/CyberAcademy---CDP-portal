@@ -65,6 +65,18 @@ export class ModuleQuizSubmissionDto {
   @Transform(({ value }) => Number(value))
   module_index!: number;
   answers!: Record<string, string>;
+
+  @IsOptional()
+  @IsString()
+  started_at?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => Math.max(0, Number(value) || 0))
+  tab_switches = 0;
+
+  @IsOptional()
+  @IsString()
+  browser?: string;
 }
 
 export class JobQueryDto {

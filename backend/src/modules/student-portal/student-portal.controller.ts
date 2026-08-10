@@ -1,5 +1,5 @@
 import {
-  Body, Controller, ForbiddenException, Get, Param, ParseIntPipe, Post, Put, Query, UseGuards,
+  Body, Controller, ForbiddenException, Get, Headers, Ip, Param, ParseIntPipe, Post, Put, Query, UseGuards,
 } from '@nestjs/common';
 import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -74,9 +74,14 @@ export class StudentPortalController {
   }
   @Put('courses/:id/modules/quiz-submit')
   @UseGuards(JwtAuthGuard)
-  submitModuleQuiz(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthenticatedUser, @Body() dto: ModuleQuizSubmissionDto) {
+  submitModuleQuiz(
+    @Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ModuleQuizSubmissionDto, @Ip() ip: string, @Headers('user-agent') userAgent = '',
+  ) {
     this.requireStudent(user);
-    return this.service.submitModuleQuiz(id, user.sub, dto.module_index, dto.answers ?? {});
+    return this.service.submitModuleQuiz(id, user.sub, dto.module_index, dto.answers ?? {}, {
+      startedAt: dto.started_at, tabSwitches: dto.tab_switches, browser: dto.browser, ip, userAgent,
+    });
   }
   @Get('announcements') announcements() { return this.service.announcements(); }
 

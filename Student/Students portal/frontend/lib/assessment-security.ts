@@ -39,9 +39,24 @@ export type SecureAssessmentSummary = {
   latestAttemptId: number | null;
   canStart: boolean;
   questionCount: number;
+  attempts: AssessmentAttemptSummary[];
   security: AssessmentSecuritySettings;
 };
 
+
+export type AssessmentAttemptSummary = {
+  attemptId: number;
+  attemptNumber: number;
+  status: "in_progress" | "completed" | "terminated" | "auto_submitted";
+  startedAt: string;
+  endedAt: string | null;
+  durationSeconds: number;
+  score: number;
+  violations: number;
+  browser: string;
+  operatingSystem: string;
+  ipAddress: string;
+};
 export type SecureQuestion = {
   id: string;
   text: string;

@@ -118,12 +118,15 @@ export class AssessmentsService {
       where: { assignment_id: { in: currentIds }, published: true, active: true },
       orderBy: { created_at: 'desc' },
     });
-    return Promise.all(rows.map(async (item) => {
-      const attempts = email ? await this.prisma.assignment_attempts.findMany({
-        where: { assignment_id: item.assignment_id, student_email: email },
-        orderBy: { started_at: 'desc' },
-      }) : [];
-      const latest = attempts[0];
+    const allAttempts = email && rows.length ? await this.prisma.assignment_attempts.findMany({
+      where: { assignment_id: { in: rows.map((item) => item.assignment_id) }, student_email: email.toLowerCase() },
+      orderBy: { started_at: 'asc' },
+    }) : [];
+    const attemptsByAssignment = new Map<string, typeof allAttempts>();
+    for (const attempt of allAttempts) attemptsByAssignment.set(attempt.assignment_id, [...(attemptsByAssignment.get(attempt.assignment_id) ?? []), attempt]);
+    return rows.map((item) => {
+      const attempts = attemptsByAssignment.get(item.assignment_id) ?? [];
+      const latest = attempts[attempts.length - 1];
       const max = item.max_attempts ?? 3;
       const remaining = Math.max(max - attempts.length, 0);
       return {
@@ -133,9 +136,10 @@ export class AssessmentsService {
         latestAttemptStatus: latest?.status ?? null, latestAttemptId: latest?.id ?? null,
         canStart: remaining > 0 || Boolean(latest?.status === 'in_progress' && item.resume_allowed),
         questionCount: Array.isArray(item.questions_json) ? item.questions_json.length : 0,
+        attempts: attempts.map((attempt) => this.summary(attempt, item.assignment_title)),
         security: this.security(item),
       };
-    }));
+    });
   }
 
   private shuffled<T>(items: T[], enabled: boolean) {
