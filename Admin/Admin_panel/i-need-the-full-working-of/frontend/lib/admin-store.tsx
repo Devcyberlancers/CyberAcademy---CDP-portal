@@ -166,8 +166,8 @@ export function AdminStoreProvider({ children }: { children: React.ReactNode }) 
         registrations?: RegistrationRecord[];
         activityLog?: string[];
       };
-      if (parsed.students) setStudents(parsed.students.filter((student) => typeof student?.name === "string" && !student.name.toLowerCase().includes("test student")));
-      if (parsed.registrations) setRegistrations(parsed.registrations.filter((registration) => typeof registration?.name === "string" && !registration.name.toLowerCase().includes("test student")));
+      if (parsed.students) setStudents(parsed.students.filter((student) => typeof student?.name === "string"));
+      if (parsed.registrations) setRegistrations(parsed.registrations.filter((registration) => typeof registration?.name === "string"));
       if (parsed.activityLog) setActivityLog(parsed.activityLog);
     } catch {
       window.localStorage.removeItem(storageKey);
@@ -761,7 +761,7 @@ export function AdminStoreProvider({ children }: { children: React.ReactNode }) 
     const databaseId = Number(student.id.replace("DB-STU-", ""));
     if (!Number.isFinite(databaseId)) throw new Error("This student is not linked to the shared database.");
 
-    await deleteStudentFromDb(databaseId);
+    await deleteStudentFromDb(databaseId, student.email);
     setStudents((current) => current.filter((item) => item.id !== studentId));
     setRegistrations((current) => current.filter((item) => item.studentId !== studentId && item.dbStudentId !== databaseId));
     addLog(`${student.name} account and associated data permanently deleted.`);

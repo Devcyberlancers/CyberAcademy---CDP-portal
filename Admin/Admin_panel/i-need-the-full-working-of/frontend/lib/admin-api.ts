@@ -406,7 +406,9 @@ export async function createStudentAccountInDb(payload: StudentAccountPayload) {
     const detail =
       json && typeof json === "object" && "detail" in json && typeof json.detail === "string"
         ? json.detail
-        : response.statusText;
+        : json && typeof json === "object" && "message" in json && typeof json.message === "string"
+          ? json.message
+          : response.statusText;
     notify({ type: "error", message: detail || "Student account could not be saved." });
     throw new Error(detail || `Request failed with ${response.status}`);
   }
@@ -415,7 +417,7 @@ export async function createStudentAccountInDb(payload: StudentAccountPayload) {
     type: "success",
     message: created.credential_email_sent
       ? "Student account created and login credentials emailed successfully."
-      : "Student account created or updated successfully."
+      : created.credential_delivery_message || "Student account created successfully."
   });
   return created;
 }
@@ -424,9 +426,9 @@ export function listStudentsFromDb() {
   return request<DbStudent[]>("/api/admin/students");
 }
 
-export async function deleteStudentFromDb(studentId: number) {
+export async function deleteStudentFromDb(studentId: number, studentEmail: string) {
   const result = await request<{ deleted: boolean; student_id: number; email: string; message: string }>(
-    `/api/admin/students/accounts/${studentId}`,
+    `/api/admin/students/accounts/${studentId}?confirm=${encodeURIComponent(studentEmail.trim().toLowerCase())}`,
     { method: "DELETE" }
   );
   notify({ type: "success", message: result.message });

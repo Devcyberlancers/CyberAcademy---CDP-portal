@@ -1,5 +1,5 @@
 import {
-  Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, UseGuards,
+  Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query, UseGuards,
 } from '@nestjs/common';
 import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -98,8 +98,8 @@ export class AdminController {
   @Get('students/:id/learning') studentLearning(@Param('id', ParseIntPipe) id: number) {
     return this.service.studentLearning(id);
   }
-  @Post('students/accounts') createStudent(@Body() dto: StudentAccountDto) { return this.service.createStudent(dto); }
-  @Delete('students/accounts/:id') deleteStudent(@Param('id', ParseIntPipe) id: number) { return this.service.deleteStudent(id); }
+  @Post('students/accounts') createStudent(@Body() dto: StudentAccountDto, @CurrentUser() user: AuthenticatedUser) { return this.service.createStudent(dto, user.sub); }
+  @Delete('students/accounts/:id') deleteStudent(@Param('id', ParseIntPipe) id: number, @Query('confirm') confirmation: string, @CurrentUser() user: AuthenticatedUser) { return this.service.deleteStudent(id, confirmation || '', user.sub); }
   @Post('students/:id/messages') messageStudent(
     @Param('id', ParseIntPipe) id: number, @Body() dto: StudentMessageDto, @CurrentUser() user: AuthenticatedUser,
   ) { return this.service.messageStudent(id, dto.message, user.sub); }
