@@ -36,7 +36,7 @@ type ModuleItem = {
   imageUrl?: string;
   imageName?: string;
   resources: string[];
-  unlockRule: "video_quiz" | "video" | "manual";
+  unlockRule: "manual" | "video_quiz";
   generatedQuestions: QuizQuestion[];
 };
 type StoredAssessment = { id?: string } & Record<string, unknown>;
@@ -66,7 +66,7 @@ function normalizeModule(module: Partial<ModuleItem> & { title: string }): Modul
     imageUrl: module.imageUrl,
     imageName: module.imageName,
     resources: module.resources ?? [],
-    unlockRule: module.unlockRule ?? "video_quiz",
+    unlockRule: module.unlockRule === "manual" ? "manual" : "video_quiz",
     generatedQuestions: (module.generatedQuestions ?? []).map((question) => ({
       question: question.question,
       options: question.options?.length ? question.options.slice(0, 4) : ["", "", "", ""],
@@ -256,9 +256,8 @@ export function CourseContentBuilder({ courseId }: CourseContentBuilderProps) {
   }, [draft, hydrated, selectedIndex]);
 
   const completionRule = useMemo(() => {
-    if (draft.unlockRule === "video") return "Next module opens after video completion.";
     if (draft.unlockRule === "manual") return "Next module opens only after admin unlock.";
-    return "Next module opens after video completion and quiz pass.";
+    return "Next module opens after the previous module test is passed.";
   }, [draft.unlockRule]);
 
   function selectModule(index: number) {
@@ -290,7 +289,7 @@ export function CourseContentBuilder({ courseId }: CourseContentBuilderProps) {
       videoUrl: "",
       quiz: "",
       locked: modules.length > 0,
-      unlockRule: "video_quiz"
+      unlockRule: "manual"
     });
     const nextModules = normalizeModuleSequence([...modules, next]);
     setModules(nextModules);
@@ -367,7 +366,7 @@ export function CourseContentBuilder({ courseId }: CourseContentBuilderProps) {
               <button type="button" onClick={() => selectModule(index)} className="flex-1 text-left text-sm font-semibold text-slate-800">
                 {module.title || "Untitled module"}
                 <span className="ml-2 text-xs font-normal text-slate-500">
-                  {module.videoSource === "youtube" ? "YouTube" : "Uploaded video"} / {module.generatedQuestions.length || 0} quiz questions
+                  {module.generatedQuestions.length || 0} test questions
                 </span>
               </button>
               <span className={`flex items-center gap-1 rounded-full px-2 py-1 text-xs font-bold ${module.locked ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700"}`}>
@@ -432,89 +431,16 @@ export function CourseContentBuilder({ courseId }: CourseContentBuilderProps) {
                 <input className="h-11 w-full rounded-md border border-portal-line px-3 outline-none focus:border-portal-blue" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} />
               </label>
 
-              <div>
-                <span className="mb-2 block text-sm font-bold text-slate-700">Teaching Video Source</span>
-                <div className="grid gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setDraft({ ...draft, videoSource: "youtube" })}
-                    className={`flex h-11 items-center justify-center gap-2 rounded-md border text-sm font-bold ${draft.videoSource === "youtube" ? "border-portal-blue bg-blue-50 text-portal-blue" : "border-portal-line text-slate-700"}`}
-                  >
-                    <Youtube size={17} />
-                    YouTube Link
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDraft({ ...draft, videoSource: "upload" })}
-                    className={`flex h-11 items-center justify-center gap-2 rounded-md border text-sm font-bold ${draft.videoSource === "upload" ? "border-portal-blue bg-blue-50 text-portal-blue" : "border-portal-line text-slate-700"}`}
-                  >
-                    <Video size={17} />
-                    Upload Own Video
-                  </button>
-                </div>
-              </div>
-
-              {draft.videoSource === "youtube" ? (
-                <label>
-                  <span className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-700"><Youtube size={17} className="text-red-500" />YouTube Video Link</span>
-                  <input className="h-11 w-full rounded-md border border-portal-line px-3 outline-none focus:border-portal-blue" value={draft.videoUrl} onChange={(event) => setDraft({ ...draft, videoUrl: event.target.value })} placeholder="Paste YouTube lesson link here" />
-                </label>
-              ) : (
-                <label className="flex min-h-14 cursor-pointer items-center justify-between gap-3 rounded-md border border-portal-line px-4">
-                  <span className="flex items-center gap-2 text-sm font-bold text-slate-700"><PlaySquare size={18} className="text-portal-blue" />{draft.uploadedVideoName || "Upload MP4/WebM teaching video"}</span>
-                  <span className="text-sm font-bold text-portal-blue">Choose</span>
-                  <input
-                    type="file"
-                    accept="video/*"
-                    className="hidden"
-                    onChange={(event) => {
-                      const file = event.target.files?.[0];
-                      if (file) setDraft({ ...draft, uploadedVideoName: file.name, uploadedVideoUrl: URL.createObjectURL(file) });
-                    }}
-                  />
-                </label>
-              )}
-
               <label>
                 <span className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-700"><HelpCircle size={17} className="text-portal-blue" />Quiz After This Module</span>
                 <input className="h-11 w-full rounded-md border border-portal-line px-3 outline-none focus:border-portal-blue" value={draft.quiz} onChange={(event) => setDraft({ ...draft, quiz: event.target.value })} placeholder="Quiz title or quiz ID" />
               </label>
 
-              <div>
-                <span className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-700"><FileText size={17} className="text-portal-blue" />Module Resources</span>
-                <label className="flex min-h-11 cursor-pointer items-center justify-between rounded-md border border-portal-line px-3 text-sm">
-                  <span className="font-semibold text-slate-600">Upload PDF, PPT, DOCX, ZIP, or worksheet files</span>
-                  <span className="font-bold text-portal-blue">Add Files</span>
-                  <input
-                    type="file"
-                    multiple
-                    className="hidden"
-                    onChange={async (event) => {
-                      const files = Array.from(event.target.files ?? []);
-                      const resources = await Promise.all(files.map((file) => new Promise<string>((resolve, reject) => {
-                        const reader = new FileReader();
-                        reader.onload = () => resolve(String(reader.result));
-                        reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
-                        reader.readAsDataURL(file);
-                      })));
-                      setDraft({ ...draft, resources: [...draft.resources, ...resources] });
-                    }}
-                  />
-                </label>
-                {draft.resources.length ? (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {draft.resources.map((resource) => (
-                      <span key={resource} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">{resource.startsWith("data:") ? "Uploaded resource" : resource}</span>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-
               <div className="grid gap-4">
                 <label>
                   <span className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-700"><Link2 size={17} className="text-portal-blue" />Unlock Rule</span>
                   <select className="h-11 w-full rounded-md border border-portal-line px-3" value={draft.unlockRule} onChange={(event) => setDraft({ ...draft, unlockRule: event.target.value as ModuleItem["unlockRule"] })}>
-                    <option value="video_quiz">Finish video + pass quiz</option>
+                    <option value="video_quiz">Pass previous module test</option>
                     <option value="video">Finish video only</option>
                     <option value="manual">Manual admin unlock</option>
                   </select>

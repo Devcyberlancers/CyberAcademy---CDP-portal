@@ -378,10 +378,10 @@ export class StudentPortalService {
     let previousComplete = true;
     const studentModules = moduleList.map((module, index) => {
       const questions = Array.isArray(module.generatedQuestions) ? module.generatedQuestions : [];
-      const videoCompleted = watched.has(index) || (!module.videoUrl && !module.uploadedVideoUrl);
+      const videoCompleted = true;
       const quizPassed = !questions.length || Boolean((progress as any)?.quizzes?.[String(index)]?.passed);
       const accessible = index === 0 || previousComplete;
-      const required = module.unlockRule === 'manual' ? true : module.unlockRule === 'video' ? videoCompleted : videoCompleted && quizPassed;
+      const required = module.unlockRule === 'manual' ? true : quizPassed;
       previousComplete = accessible && required;
       const publicQuestions = questions.map((question: any) => ({ question: question.question, options: question.options }));
       return { ...module, generatedQuestions: publicQuestions, locked: !accessible, accessible, completed: required, videoCompleted, quizPassed };

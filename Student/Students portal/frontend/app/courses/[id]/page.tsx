@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
-import { ArrowLeft, BookOpen, CalendarDays, CheckCircle2, ClipboardCheck, ExternalLink, FileText, Lock, Medal, Search, Trophy, X } from "lucide-react";
+import { ArrowLeft, BookOpen, CalendarDays, CheckCircle2, ClipboardCheck, Lock, Medal, Search, Trophy, X } from "lucide-react";
 import { DashboardShell, type StudentSection } from "@/components/dashboard-shell";
 import { defaultStudentAccount, fetchStudentProfile, readStudentAccount, type StudentAccount } from "@/lib/student-account";
 
@@ -111,22 +111,6 @@ export default function StudentCoursePage({ params }: { params: Promise<{ id: st
   const activeModule = data.modules[Math.min(activeModuleIndex, Math.max(0, data.modules.length - 1))];
   const activeModulePosition = Math.min(activeModuleIndex, Math.max(0, data.modules.length - 1));
 
-  async function markVideoComplete(moduleIndex: number) {
-    const token = window.localStorage.getItem("cyber-academy-auth-token");
-    if (!token) { setError("Please log in again to save your course progress."); return; }
-    setCompleting(moduleIndex);
-    try {
-      const response = await fetch(`${apiBaseUrl}/api/courses/${encodeURIComponent(courseId)}/modules/video-complete`, {
-        method: "PUT", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ module_index: moduleIndex }),
-      });
-      if (!response.ok) throw new Error("Course progress could not be saved.");
-      const refreshed = await fetch(`${apiBaseUrl}/api/courses/${encodeURIComponent(courseId)}/content`, { cache: "no-store", headers: { Authorization: `Bearer ${token}` } });
-      if (!refreshed.ok) throw new Error("Course content could not be refreshed.");
-      setData(await refreshed.json() as CourseContent);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Course progress could not be saved."); }
-    finally { setCompleting(null); }
-  }
-
   function startModuleQuiz(moduleIndex: number) {
     setQuizError("");
     setQuizAnswers({});
@@ -164,10 +148,8 @@ export default function StudentCoursePage({ params }: { params: Promise<{ id: st
           <article className="min-w-0 rounded-2xl border border-[#dfe4f2] bg-white p-5 shadow-sm sm:p-7">
             {activeModule ? <><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-sm font-bold text-[#3155ff]">Module {activeModulePosition + 1} of {data.modules.length}</p><h2 className="mt-1 text-2xl font-bold">{activeModule.title || `Module ${activeModulePosition + 1}`}</h2></div>{activeModule.completed ? <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700"><CheckCircle2 size={14} /> Completed</span> : <span className="rounded-full bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700">In progress</span>}</div>
               {activeModule.imageUrl ? <img src={activeModule.imageUrl} alt="" className="mt-6 max-h-80 w-full rounded-xl object-cover" /> : null}
-              <div className="mt-6 grid gap-3 sm:grid-cols-3"><ProgressTile label="Learning content" complete={Boolean(activeModule.videoCompleted)} /><ProgressTile label="Module quiz" complete={Boolean(activeModule.quizPassed)} optional={!activeModule.generatedQuestions?.length} /><ProgressTile label="Module" complete={Boolean(activeModule.completed)} /></div>
-              {activeModule.resources?.length ? <div className="mt-7 border-t border-[#edf0f5] pt-5"><h3 className="flex items-center gap-2 font-bold"><FileText size={18} /> Learning resources</h3><div className="mt-3 flex flex-wrap gap-2">{activeModule.resources.map((resource) => isUrl(resource) ? <a key={resource} href={resource} target="_blank" rel="noreferrer" download={resource.startsWith("data:")} className="inline-flex items-center gap-2 rounded-lg bg-[#eef2ff] px-3 py-2 text-sm font-semibold text-[#3155ff]">Open resource <ExternalLink size={14} /></a> : <span key={resource} className="rounded-lg bg-[#f2f4f8] px-3 py-2 text-sm font-semibold">{resource}</span>)}</div></div> : <p className="mt-7 rounded-xl bg-[#f8fafc] p-4 text-sm text-[#657083]">Your administrator has not added downloadable learning resources for this module.</p>}
-              {!activeModule.videoCompleted && !activeModule.completed ? <button type="button" disabled={completing === activeModulePosition} onClick={() => void markVideoComplete(activeModulePosition)} className="mt-6 rounded-lg border border-[#3155ff] px-4 py-2.5 font-semibold text-[#3155ff] disabled:opacity-50">{completing === activeModulePosition ? "Saving…" : "Mark module content as completed"}</button> : null}
-              {activeModule.generatedQuestions?.length ? <div className="mt-7 border-t border-[#edf0f5] pt-5"><h3 className="flex items-center gap-2 font-bold"><ClipboardCheck size={18} /> {activeModule.quiz || "Module quiz"}</h3><p className="mt-2 text-sm text-[#657083]">Complete this quiz to unlock the next module. A score of at least 60% is required.</p><button type="button" disabled={!activeModule.videoCompleted && !activeModule.completed} onClick={() => startModuleQuiz(activeModulePosition)} className="mt-4 rounded-lg bg-[#3155ff] px-4 py-2.5 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">{activeModule.quizPassed ? "Review quiz" : "Start module quiz"}</button></div> : null}
+              <div className="mt-6 grid gap-3 sm:grid-cols-2"><ProgressTile label="Module test" complete={Boolean(activeModule.quizPassed)} optional={!activeModule.generatedQuestions?.length} /><ProgressTile label="Module" complete={Boolean(activeModule.completed)} /></div>
+              {activeModule.generatedQuestions?.length ? <div className="mt-7 border-t border-[#edf0f5] pt-5"><h3 className="flex items-center gap-2 font-bold"><ClipboardCheck size={18} /> {activeModule.quiz || "Module quiz"}</h3><p className="mt-2 text-sm text-[#657083]">Complete this quiz to unlock the next module. A score of at least 60% is required.</p><button type="button"  onClick={() => startModuleQuiz(activeModulePosition)} className="mt-4 rounded-lg bg-[#3155ff] px-4 py-2.5 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">{activeModule.quizPassed ? "Review quiz" : "Start module quiz"}</button></div> : null}
             </> : <EmptyState message="No modules have been published for this course yet." />}
           </article>
         </section>
@@ -212,20 +194,6 @@ function CourseMessage({ message }: { message: string }) {
 
 function CourseQuiz({ module, answers, onChoose, error, result, onSubmit, onClose }: { module?: CourseModule; answers: Record<string, string>; onChoose: (index: number, value: string) => void; error: string; result: { score: number; passed: boolean } | null; onSubmit: () => void; onClose: () => void }) {
   return <section className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/50 p-4 sm:p-8"><div className="mx-auto max-w-3xl rounded-2xl bg-white p-6 shadow-2xl"><div className="flex items-start justify-between gap-4"><div><p className="text-sm font-semibold text-[#3155ff]">Module quiz</p><h2 className="text-2xl font-bold">{module?.quiz || "Knowledge check"}</h2></div><button onClick={onClose} className="font-semibold text-slate-500">Close</button></div>{result ? <div className="mt-6 rounded-xl bg-[#eefaf1] p-5"><h3 className="text-xl font-bold">{result.passed ? "Quiz passed" : "Quiz not passed"}</h3><p className="mt-2">Score: {result.score}%. {result.passed ? "The next module is now unlocked." : "You need 60% to unlock the next module."}</p><button onClick={onClose} className="mt-4 rounded-lg bg-[#3155ff] px-4 py-2 font-semibold text-white">Return to course</button></div> : <><div className="mt-6 grid gap-5">{module?.generatedQuestions?.map((question, questionIndex) => <div key={questionIndex} className="rounded-xl border border-[#dfe4f2] p-4"><p className="font-bold">{questionIndex + 1}. {question.question}</p><div className="mt-3 grid gap-2">{question.options?.map((option) => <label key={option} className="flex cursor-pointer items-center gap-3 rounded-lg border p-3"><input type="radio" name={`q-${questionIndex}`} checked={answers[String(questionIndex)] === option} onChange={() => onChoose(questionIndex, option)} /><span>{option}</span></label>)}</div></div>)}</div>{error ? <p className="mt-4 text-sm font-semibold text-red-600">{error}</p> : null}<button onClick={onSubmit} className="mt-6 rounded-lg bg-[#3155ff] px-5 py-3 font-semibold text-white">Submit quiz</button></>}</div></section>;
-}
-
-function isUrl(value: string) {
-  return /^https?:\/\//i.test(value) || value.startsWith("data:");
-}
-
-function youtubeEmbedUrl(value: string) {
-  try {
-    const url = new URL(value);
-    const id = url.hostname.includes("youtu.be") ? url.pathname.slice(1) : url.searchParams.get("v");
-    return id ? `https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}` : value;
-  } catch {
-    return value;
-  }
 }
 
 function PlatformInstructions({ assessment, onClose }: { assessment: CourseAssessment; onClose: () => void }) {
