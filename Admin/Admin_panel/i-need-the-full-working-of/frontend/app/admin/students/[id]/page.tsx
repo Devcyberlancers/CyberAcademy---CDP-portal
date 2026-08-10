@@ -8,7 +8,7 @@ import { StudentProfilePreview } from "@/components/admin/StudentProfilePreview"
 import { SectionCard } from "@/components/admin/SectionCard";
 import { studentFromDb, useAdminStore, type StudentRecord } from "@/lib/admin-store";
 import { getStudentLearningRecord, getStudentPortalAccess, getStudentProfileFromDb, listCoursesFromDb, listJobApplicationActivity, scheduleStudentDailyReminder, sendMessageToStudent, updateStudentPortalAccess, type AdminJobApplicationActivity, type DbCourse, type PortalAccessSettings, type StudentLearningAssessment, type StudentLearningRecord } from "@/lib/admin-api";
-import { Bell, BookOpen, BriefcaseBusiness, CheckCircle2, ClipboardCheck, LockKeyhole, Mail, ShieldCheck, ShieldOff, Trash2, UserCheck, X, XCircle } from "lucide-react";
+import { Bell, BookOpen, BriefcaseBusiness, CheckCircle2, ClipboardCheck, Eye, LockKeyhole, Mail, ShieldCheck, ShieldOff, Trash2, UserCheck, X, XCircle } from "lucide-react";
 import { studentPortalUrl } from "@/lib/urls";
 
 export default function StudentDetailPage() {
@@ -51,6 +51,9 @@ export default function StudentDetailPage() {
   const [adminActionNotice, setAdminActionNotice] = useState("");
   const [adminActionBusy, setAdminActionBusy] = useState(false);
   const [showProfilePreview, setShowProfilePreview] = useState(false);
+  const [profilePreviewed, setProfilePreviewed] = useState(false);
+  const [profilePreviewLoading, setProfilePreviewLoading] = useState(false);
+  const [profilePreviewNotice, setProfilePreviewNotice] = useState("");
   const [fullProfile, setFullProfile] = useState<StudentRecord | null>(null);
 
   const student = students.find((item) => item.id === params.id || item.id === `DB-STU-${params.id}`);
@@ -104,6 +107,26 @@ export default function StudentDetailPage() {
     if (Number.isFinite(databaseId)) void getStudentPortalAccess(databaseId).then(setPortalAccess).catch(() => undefined);
   }, [registration, student]);
 
+  async function openProfilePreview() {
+    if (!student) return;
+    const databaseId = registration?.dbStudentId ?? Number(student.id.replace("DB-STU-", ""));
+    setProfilePreviewLoading(true);
+    setProfilePreviewNotice("");
+    try {
+      if (Number.isFinite(databaseId)) {
+        const profile = await getStudentProfileFromDb(databaseId);
+        setFullProfile(studentFromDb(profile));
+      } else {
+        setFullProfile(student);
+      }
+      setProfilePreviewed(true);
+      setShowProfilePreview(true);
+    } catch (error) {
+      setProfilePreviewNotice(error instanceof Error ? error.message : "The complete student profile could not be loaded.");
+    } finally {
+      setProfilePreviewLoading(false);
+    }
+  }
   async function toggleStudentAccess(key: keyof PortalAccessSettings) {
     if (!student) return;
     const databaseId = registration?.dbStudentId ?? Number(student.id.replace("DB-STU-", ""));
@@ -183,15 +206,16 @@ export default function StudentDetailPage() {
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <button onClick={() => markProfileCompleted(registration.id)} className="h-10 rounded-md border border-portal-line px-4 text-sm font-bold text-slate-700">Profile Filled</button>
-                    <button onClick={() => approveRegistration(registration.id)} className="flex h-10 items-center gap-2 rounded-md bg-emerald-600 px-4 text-sm font-bold text-white"><UserCheck size={17} />Approve</button>
+                    <button type="button" onClick={() => void openProfilePreview()} disabled={profilePreviewLoading} className="flex h-10 items-center gap-2 rounded-md border border-[#3155ff] px-4 text-sm font-bold text-[#3155ff] disabled:opacity-50"><Eye size={17} />{profilePreviewLoading ? "Loading Profile..." : "Review Full Profile"}</button><button onClick={() => approveRegistration(registration.id)} className="flex h-10 items-center gap-2 rounded-md bg-emerald-600 px-4 text-sm font-bold text-white"><UserCheck size={17} />Approve</button>
                     <button onClick={() => rejectRegistration(registration.id)} className="flex h-10 items-center gap-2 rounded-md border border-red-200 px-4 text-sm font-bold text-red-600"><XCircle size={17} />Reject</button>
                   </div>
                 </div>
+              {profilePreviewNotice ? <p className="text-sm font-semibold text-red-600">{profilePreviewNotice}</p> : null}
               </SectionCard>
             </>
           ) : (
             <SectionCard title="Student Details">
-              <div className="mb-4 flex justify-end"><button type="button" onClick={() => setShowProfilePreview(true)} className="flex h-10 items-center gap-2 rounded-md border border-portal-line px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50"><UserCheck size={17} className="text-portal-blue" />View Profile Details</button></div>
+              <div className="mb-4 flex justify-end"><button type="button" onClick={() => void openProfilePreview()} disabled={profilePreviewLoading} className="flex h-10 items-center gap-2 rounded-md border border-portal-line px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50"><UserCheck size={17} className="text-portal-blue" />View Profile Details</button></div>{profilePreviewNotice ? <p className="mb-4 text-sm font-semibold text-red-600">{profilePreviewNotice}</p> : null}
               <div className="grid gap-4 text-sm md:grid-cols-3">
                 <div><p className="text-slate-500">Name</p><p className="mt-1 font-bold text-slate-950">{student.name}</p></div>
                 <div><p className="text-slate-500">Register Number</p><p className="mt-1 font-bold text-slate-950">{student.regNo}</p></div>

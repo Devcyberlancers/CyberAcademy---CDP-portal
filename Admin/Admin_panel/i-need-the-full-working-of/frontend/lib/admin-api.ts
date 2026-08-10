@@ -72,6 +72,8 @@ export type DbStudent = {
   name: string;
   email: string;
   register_number: string;
+  cyberlancers_id?: string | null;
+  tag?: string | null;
   phone?: string | null;
   degree?: string | null;
   branch?: string | null;

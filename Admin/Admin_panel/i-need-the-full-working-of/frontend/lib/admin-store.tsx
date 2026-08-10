@@ -19,6 +19,8 @@ export type StudentRecord = {
   degree?: string;
   branch?: string;
   batch?: string;
+  cyberlancersId?: string;
+  tag?: string;
   portfolioUrl?: string;
   photoDataUrl?: string;
   educationSummary?: Array<{ level: string; year_from: string; year_to: string; score: string }>;
@@ -109,6 +111,8 @@ export function studentFromDb(student: DbStudent): StudentRecord {
     name: student.name,
     email: student.email,
     regNo: student.register_number,
+    cyberlancersId: student.cyberlancers_id ?? undefined,
+    tag: student.tag ?? undefined,
     status: dbStatusToUi(student.status, student.profile_status),
     progress: student.progress_percent,
     module: student.current_module ?? "Profile Pending",

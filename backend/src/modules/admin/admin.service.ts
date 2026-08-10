@@ -474,7 +474,7 @@ export class AdminService {
     } catch { /* malformed student education is ignored in the admin summary */ }
     return {
       id: profile.id, name: profile.full_name || profile.first_name || profile.email,
-      email: profile.email, register_number: profile.registration_number || profile.cyberlancers_id || String(profile.id),
+      email: profile.email, register_number: profile.registration_number || profile.cyberlancers_id || String(profile.id), cyberlancers_id: profile.cyberlancers_id || null, tag: profile.tag || null,
       phone: profile.phone || null, degree: profile.course || null, branch: profile.department || null,
       batch: profile.batch || null, status: profile.status || (!user || user.is_active ? 'active' : 'suspended'),
       progress_percent: progressPercent, current_module: currentModule, payment_status: null,
