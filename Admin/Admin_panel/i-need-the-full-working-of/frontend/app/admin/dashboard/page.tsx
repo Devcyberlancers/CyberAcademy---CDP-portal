@@ -533,12 +533,17 @@ type CsvStudentRow = {
 
 function parseStudentCsv(text: string): string[][] {
   const rows: string[][] = [];
+  const firstLine = text.split(/\r?\n/, 1)[0] ?? "";
+  const delimiters = [",", ";", "\t"];
+  const delimiter = delimiters.reduce((best, candidate) =>
+    firstLine.split(candidate).length > firstLine.split(best).length ? candidate : best
+  , ",");
   let row: string[] = [], value = "", quoted = false;
   for (let index = 0; index < text.length; index++) {
     const character = text[index];
     if (character === "\"") {
       if (quoted && text[index + 1] === "\"") { value += "\""; index++; } else quoted = !quoted;
-    } else if (character === "," && !quoted) { row.push(value.trim()); value = ""; }
+    } else if (character === delimiter && !quoted) { row.push(value.trim()); value = ""; }
     else if ((character === "\n" || character === "\r") && !quoted) {
       if (character === "\r" && text[index + 1] === "\n") index++;
       row.push(value.trim()); value = "";
@@ -562,13 +567,14 @@ function BulkCsvAccountCreator({ onCreate }: {
   const preview = rows[previewIndex] ?? rows[0];
 
   function rowError(row: CsvStudentRow) {
-    if (!row.name || !row.register_number || !row.delivery_email || !row.login_email) return "Required information is missing";
+    if (!row.name || !row.delivery_email || !row.login_email) return "Student name, sender mail and login mail are required";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.delivery_email)) return "Sender mail is not a valid email address";
     if (!row.login_email.toLowerCase().endsWith("@cyberlancers.in")) return "Login email must end with @cyberlancers.in";
     return "";
   }
 
   function downloadTemplate() {
-    const csv = "name,register_number,delivery_email,login_email,phone,degree,branch,batch\r\nExample Student,CA2026001,personal@example.com,example.student@cyberlancers.in,9876543210,B.Tech,CSE,2026";
+    const csv = "student_name,sender_mail,login_mail\r\nExample Student,personal@example.com,example.student@cyberlancers.in";
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
     const link = document.createElement("a");
     link.href = url; link.download = "cyber-academy-student-import-template.csv"; link.click();
@@ -614,11 +620,53 @@ function BulkCsvAccountCreator({ onCreate }: {
         <input type="file" accept=".csv,text/csv" className="hidden" onChange={async (event) => {
           const file = event.target.files?.[0]; if (!file) return;
           const parsed = parseStudentCsv(await file.text());
-          const headers = (parsed[0] ?? []).map((header) => header.trim().toLowerCase());
-          const required = ["name", "register_number", "delivery_email", "login_email"];
-          if (required.some((header) => !headers.includes(header))) { setNotice(`Required headers: ${required.join(", ")}`); setRows([]); return; }
-          const value = (row: string[], header: keyof CsvStudentRow) => row[headers.indexOf(header)] ?? "";
-          setRows(parsed.slice(1).map((row) => ({ name: value(row, "name"), register_number: value(row, "register_number"), delivery_email: value(row, "delivery_email"), login_email: value(row, "login_email"), temp_password: value(row, "temp_password"), phone: value(row, "phone"), degree: value(row, "degree"), branch: value(row, "branch"), batch: value(row, "batch") })).filter((row) => Object.values(row).some(Boolean)));
+          const normalizeHeader = (header: string) => header.replace(/^\uFEFF/, "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+          const headers = (parsed[0] ?? []).map(normalizeHeader);
+          const aliases: Record<keyof CsvStudentRow, string[]> = {
+            name: ["name", "student_name", "student", "full_name"],
+            register_number: ["register_number", "registration_number", "register_no", "reg_no", "usn", "student_id"],
+            delivery_email: ["delivery_email", "sender_mail", "sender_email", "recipient_email", "personal_email", "email", "email_id", "mail", "mail_id"],
+            login_email: ["login_email", "login_mail", "login_email_id", "login_mail_id", "cyberlancers_email", "cyberlancers_mail", "username", "user_email"],
+            temp_password: ["temp_password", "temporary_password", "password"],
+            phone: ["phone", "phone_number", "mobile", "mobile_number"],
+            degree: ["degree", "course", "programme", "program"],
+            branch: ["branch", "department", "specialization"],
+            batch: ["batch", "graduation_year", "year"]
+          };
+          const columnIndex = (field: keyof CsvStudentRow) => {
+            const exact = headers.findIndex((header) => aliases[field].includes(header));
+            if (exact >= 0) return exact;
+            return headers.findIndex((header) => {
+              if (field === "name") return header.includes("name") && (header.includes("student") || header.includes("full"));
+              if (field === "delivery_email") return (header.includes("sender") || header.includes("recipient") || header.includes("personal") || header.includes("delivery")) && (header.includes("mail") || header.includes("email"));
+              if (field === "login_email") return (header.includes("login") || header.includes("username") || header.includes("cyberlancer")) && (header.includes("mail") || header.includes("email") || header.includes("user"));
+              return false;
+            });
+          };
+          const value = (row: string[], field: keyof CsvStudentRow) => {
+            const index = columnIndex(field);
+            return index >= 0 ? (row[index] ?? "").trim() : "";
+          };
+          if (columnIndex("name") < 0 || columnIndex("login_email") < 0 || columnIndex("delivery_email") < 0) {
+            setNotice("CSV needs only three columns: student name, sender mail and login mail. Common header variations are accepted.");
+            setRows([]);
+            return;
+          }
+          setRows(parsed.slice(1).map((row, index) => {
+            const loginEmail = value(row, "login_email").toLowerCase();
+            const generatedRegistration = `CL-${(loginEmail.split("@")[0] || "STUDENT").replace(/[^a-z0-9]/gi, "").slice(0, 22).toUpperCase()}-${String(index + 1).padStart(4, "0")}`;
+            return {
+              name: value(row, "name"),
+              register_number: value(row, "register_number") || generatedRegistration,
+              delivery_email: value(row, "delivery_email").toLowerCase(),
+              login_email: loginEmail,
+              temp_password: value(row, "temp_password"),
+              phone: value(row, "phone"),
+              degree: value(row, "degree"),
+              branch: value(row, "branch"),
+              batch: value(row, "batch")
+            };
+          }).filter((row) => row.name || row.delivery_email || row.login_email));
           setPreviewIndex(0);
           setNotice("");
         }} />
@@ -639,6 +687,4 @@ function BulkCsvAccountCreator({ onCreate }: {
     </section>
   );
 }
-
-
 

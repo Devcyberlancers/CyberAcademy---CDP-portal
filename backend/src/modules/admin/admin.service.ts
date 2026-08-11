@@ -728,7 +728,6 @@ export class AdminService {
     if (dto.username.trim().toLowerCase() !== email) throw new UnprocessableEntityException('Draft username and Cyber Lancers login email must be identical');
     const domain = `@${this.config.get<string>('studentEmailDomain')}`;
     if (!email.endsWith(domain)) throw new UnprocessableEntityException(`Student login email must end with ${domain}`);
-    if (deliveryEmail !== email) throw new UnprocessableEntityException('Student credential delivery email must match the email in the imported student row.');
     const initialPassword = `Ca!${randomBytes(18).toString('base64url')}`;
     const hash = await bcrypt.hash(initialPassword, 12);
     let profile: any;
@@ -748,7 +747,7 @@ export class AdminService {
             registration_number: registrationNumber, cyberlancers_id: '', phone: dto.phone ?? '',
             course: dto.degree ?? '', department: dto.branch ?? '', batch: dto.batch ?? '',
             status: 'Waiting for Student', tag: 'Profile Pending', gender: '', date_of_birth: '', college: '',
-            resume_url: '', mentor_name: '', personal_email: null, updated_at: new Date(),
+            resume_url: '', mentor_name: '', personal_email: deliveryEmail === email ? null : deliveryEmail, updated_at: new Date(),
           },
         });
         const user = await tx.users.create({ data: { email, hashed_password: hash, role: users_role.student, is_active: true, created_at: new Date() } });

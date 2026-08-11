@@ -20,11 +20,28 @@ function notify(detail: AdminNotificationDetail) {
   }
 }
 
+function payloadError(payload: unknown): string {
+  if (typeof payload === "string") return payload;
+  if (Array.isArray(payload)) {
+    return payload.map(payloadError).filter(Boolean).join("; ");
+  }
+  if (!payload || typeof payload !== "object") return "";
+  const record = payload as Record<string, unknown>;
+  if (typeof record.msg === "string") {
+    const location = Array.isArray(record.loc) ? record.loc.filter((part) => part !== "body").join(".") : "";
+    return location ? `${location}: ${record.msg}` : record.msg;
+  }
+  for (const key of ["detail", "message", "error"]) {
+    const message = payloadError(record[key]);
+    if (message) return message;
+  }
+  return "";
+}
+
 async function responseError(response: Response): Promise<string> {
   try {
-    const payload = await response.json() as { detail?: unknown; message?: unknown };
-    if (typeof payload.detail === "string") return payload.detail;
-    if (typeof payload.message === "string") return payload.message;
+    const message = payloadError(await response.json());
+    if (message) return message;
   } catch {
     // The server may return plain text or an empty response.
   }
@@ -405,12 +422,7 @@ export async function createStudentAccountInDb(payload: StudentAccountPayload) {
     if (response.status === 409 && json && typeof json === "object" && "id" in json) {
       return json as { id: number };
     }
-    const detail =
-      json && typeof json === "object" && "detail" in json && typeof json.detail === "string"
-        ? json.detail
-        : json && typeof json === "object" && "message" in json && typeof json.message === "string"
-          ? json.message
-          : response.statusText;
+    const detail = payloadError(json) || response.statusText;
     notify({ type: "error", message: detail || "Student account could not be saved." });
     throw new Error(detail || `Request failed with ${response.status}`);
   }
@@ -583,4 +595,3 @@ export async function saveStudentCourseSubmission<T>(courseId: string, submissio
     // Keep student flow usable offline; localStorage remains the fallback.
   }
 }
-
