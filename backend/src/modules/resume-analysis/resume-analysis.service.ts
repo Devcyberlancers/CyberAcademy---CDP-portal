@@ -1,5 +1,5 @@
 import {
-  ForbiddenException, HttpException, HttpStatus, Injectable, NotFoundException,
+  BadRequestException, ForbiddenException, HttpException, HttpStatus, Injectable, Logger, NotFoundException,
   UnsupportedMediaTypeException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -14,6 +14,8 @@ const ACTIONS = ['built', 'developed', 'implemented', 'analyzed', 'secured', 'au
 
 @Injectable()
 export class ResumeAnalysisService {
+  private readonly logger = new Logger(ResumeAnalysisService.name);
+
   constructor(private readonly prisma: PrismaService, private readonly config: ConfigService) {}
 
   private async student(email: string) {
@@ -86,7 +88,10 @@ export class ResumeAnalysisService {
 
   private async aiResponse(text: string, deterministic: Record<string, unknown>) {
     const apiKey = this.config.get<string>('nvidia.apiKey');
-    if (!apiKey) return null;
+    if (!apiKey) {
+      this.logger.warn('NVIDIA_API_KEY is not configured; returning deterministic ATS analysis.');
+      return null;
+    }
     const prompt = [
       'Improve resume quality from the text only. Do not invent skills, metrics, tools, companies, or experience.',
       'Do not calculate scores. Return JSON with keys: summary, strengths, weaknesses, missing_keywords, missing_skills, career_roles, suggestions, section_improvements.',
@@ -97,12 +102,11 @@ export class ResumeAnalysisService {
     try {
       const response = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({
           model: this.config.get<string>('nvidia.model'),
           temperature: 0.2,
           max_tokens: 650,
-          response_format: { type: 'json_object' },
           messages: [
             { role: 'system', content: 'You analyze resumes. Do not calculate scores. Do not invent facts. Return JSON only.' },
             { role: 'user', content: prompt },
@@ -110,16 +114,27 @@ export class ResumeAnalysisService {
         }),
         signal: AbortSignal.timeout(120_000),
       });
-      if (!response.ok) return null;
+      if (response.status !== HttpStatus.OK) {
+        const providerMessage = (await response.text().catch(() => '')).slice(0, 500);
+        this.logger.warn(`NVIDIA resume analysis returned HTTP ${response.status}: ${providerMessage || 'No response body'}`);
+        return null;
+      }
       const payload: any = await response.json();
-      const content = payload.choices?.[0]?.message?.content ?? '{}';
-      const parsed = JSON.parse(content);
+      const content = String(payload.choices?.[0]?.message?.content ?? '').trim();
+      const unfenced = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+      const start = unfenced.indexOf('{');
+      const end = unfenced.lastIndexOf('}');
+      if (start < 0 || end <= start) {
+        this.logger.warn('NVIDIA resume analysis did not return a JSON object.');
+        return null;
+      }
+      const parsed = JSON.parse(unfenced.slice(start, end + 1));
       const arrayKeys = ['strengths', 'weaknesses', 'missing_keywords', 'missing_skills', 'career_roles', 'suggestions', 'section_improvements'];
-      return {
-        summary: String(parsed.summary ?? ''),
-        ...Object.fromEntries(arrayKeys.map((key) => [key, Array.isArray(parsed[key]) ? parsed[key] : []])),
-      };
-    } catch {
+      const arrays = Object.fromEntries(arrayKeys.map((key) => [key, Array.isArray(parsed[key]) ? parsed[key] : []])) as Record<string, unknown[]>;
+      const result = { summary: String(parsed.summary ?? ''), ...arrays };
+      return result.summary || Object.values(arrays).some((items) => items.length) ? result : null;
+    } catch (error) {
+      this.logger.warn(`NVIDIA resume analysis failed: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
   }
@@ -137,7 +152,7 @@ export class ResumeAnalysisService {
       word_count: (text.match(/[a-zA-Z][a-zA-Z+#.-]*/g) ?? []).length,
       roadmap_deductions: deterministic.roadmap.deductions.slice(0, 8),
     });
-    const result = ai ? { ...deterministic, ...ai } : deterministic;
+    const result = { ...(ai ? { ...deterministic, ...ai } : deterministic), ai_enhanced: Boolean(ai), analysis_mode: ai ? 'ai_enhanced' : 'deterministic' };
     await this.prisma.resume_analyses.create({
       data: {
         student_id: student.id, resume_filename: filename, resume_text: text,
@@ -151,7 +166,8 @@ export class ResumeAnalysisService {
     return { ...result, quota: await this.quota(email) };
   }
 
-  async analyzeProfile(email: string, requestedEmail: string) {
+  async analyzeProfile(email: string, requestedEmail?: string) {
+    if (!requestedEmail || typeof requestedEmail !== 'string') throw new BadRequestException('Student email is required.');
     if (email !== requestedEmail.trim().toLowerCase()) throw new ForbiddenException('You can analyze only the resume saved in your own profile.');
     const profile = await this.prisma.student_profiles.findUnique({ where: { email } });
     if (!profile?.resume_data_url) throw new NotFoundException('No resume is saved in this profile.');

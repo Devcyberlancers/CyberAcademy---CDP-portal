@@ -27,7 +27,20 @@ type ResumeAnalysisResult = {
   suggestions: string[];
   roadmap?: ResumeRoadmap;
   quota?: ResumeQuota;
+  ai_enhanced?: boolean;
+  analysis_mode?: "ai_enhanced" | "deterministic";
 };
+
+const ANALYSIS_STEPS = [
+  "Uploading resume securely",
+  "Extracting readable resume text",
+  "Calculating ATS compatibility score",
+  "Reviewing formatting, grammar and sections",
+  "Checking skills and keyword coverage",
+  "Sending extracted resume text for AI suggestions",
+  "Building your improvement roadmap",
+  "Saving the completed analysis"
+];
 
 type ResumeQuota = {
   limit: number;
@@ -64,6 +77,7 @@ export function ResumeIntelligencePortal() {
   const [result, setResult] = useState<ResumeAnalysisResult | null>(null);
   const [error, setError] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisStep, setAnalysisStep] = useState(0);
   const [quota, setQuota] = useState<ResumeQuota | null>(null);
 
   useEffect(() => {
@@ -85,6 +99,17 @@ export function ResumeIntelligencePortal() {
       });
     return () => controller.abort();
   }, []);
+
+  useEffect(() => {
+    if (!isAnalyzing) {
+      setAnalysisStep(0);
+      return;
+    }
+    const interval = window.setInterval(() => {
+      setAnalysisStep((current) => Math.min(current + 1, ANALYSIS_STEPS.length - 1));
+    }, 2400);
+    return () => window.clearInterval(interval);
+  }, [isAnalyzing]);
 
   const fileLabel = useMemo(() => {
     if (!file) return "Upload a PDF or DOCX resume";
@@ -108,6 +133,7 @@ export function ResumeIntelligencePortal() {
     }
 
     setIsAnalyzing(true);
+    setAnalysisStep(0);
     try {
       const account = readStudentAccount();
       const form = new FormData();
@@ -141,14 +167,16 @@ export function ResumeIntelligencePortal() {
       return;
     }
     setIsAnalyzing(true);
+    setAnalysisStep(0);
     try {
-      const form = new FormData();
-      form.append("email", account.email);
       const token = window.localStorage.getItem(authTokenStorageKey);
       const response = await fetch(`${apiBaseUrl}/api/resume/analyze-profile`, {
         method: "POST",
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        body: form
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ email: account.email })
       });
       if (!response.ok) {
         throw new Error(await readErrorMessage(response));
@@ -178,7 +206,7 @@ export function ResumeIntelligencePortal() {
           </div>
         </div>
 
-        <UploadResumeCard fileLabel={fileLabel} error={error} isAnalyzing={isAnalyzing} quota={quota} onAnalyze={analyzeResume} onAnalyzeSaved={analyzeSavedProfileResume} onFileChange={setFile} />
+        <UploadResumeCard fileLabel={fileLabel} error={error} isAnalyzing={isAnalyzing} analysisStep={analysisStep} quota={quota} onAnalyze={analyzeResume} onAnalyzeSaved={analyzeSavedProfileResume} onFileChange={setFile} />
 
         <div className="mt-7">
           {result ? <AnalysisResult result={result} /> : <EmptyState />}
@@ -192,6 +220,7 @@ function UploadResumeCard({
   fileLabel,
   error,
   isAnalyzing,
+  analysisStep,
   quota,
   onAnalyze,
   onAnalyzeSaved,
@@ -200,6 +229,7 @@ function UploadResumeCard({
   fileLabel: string;
   error: string;
   isAnalyzing: boolean;
+  analysisStep: number;
   quota: ResumeQuota | null;
   onAnalyze: () => void;
   onAnalyzeSaved: () => void;
@@ -260,6 +290,26 @@ function UploadResumeCard({
               Use Profile Resume
             </button>
           </div>
+          {isAnalyzing ? (
+            <div className="rounded-2xl border border-[#dce3f3] bg-[#f8faff] p-4" role="status" aria-live="polite">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-[#07142f]">{ANALYSIS_STEPS[analysisStep]}</p>
+                <span className="text-xs font-bold text-[#3155ff]">{analysisStep + 1}/{ANALYSIS_STEPS.length}</span>
+              </div>
+              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#e1e6f2]">
+                <div className="h-full rounded-full bg-[#3155ff] transition-all duration-700" style={{ width: `${Math.min(92, ((analysisStep + 1) / ANALYSIS_STEPS.length) * 100)}%` }} />
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {ANALYSIS_STEPS.map((message, index) => (
+                  <div key={message} className={`flex items-center gap-2 text-xs ${index <= analysisStep ? "font-semibold text-[#344054]" : "text-[#98a2b3]"}`}>
+                    {index < analysisStep ? <CheckCircle2 size={14} className="shrink-0 text-emerald-600" /> : index === analysisStep ? <Loader2 size={14} className="shrink-0 animate-spin text-[#3155ff]" /> : <span className="h-3.5 w-3.5 shrink-0 rounded-full border border-[#cbd3e3]" />}
+                    <span>{message}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-3 text-xs text-[#667085]">Keep this page open. Analysis continues independently for every signed-in student.</p>
+            </div>
+          ) : null}
         </div>
       </div>
     </Card>
@@ -622,12 +672,21 @@ function EmptyState() {
 
 async function readErrorMessage(response: Response) {
   try {
-    const body = await response.json();
-    if (typeof body?.detail === "string") return body.detail;
+    const body = await response.json() as { detail?: unknown; message?: unknown };
+    const detail = errorDetail(body.detail ?? body.message);
+    if (detail) return detail;
   } catch {
-    return response.text();
+    return `Resume analysis failed with HTTP ${response.status}.`;
   }
-  return response.text();
+  return `Resume analysis failed with HTTP ${response.status}.`;
+}
+
+function errorDetail(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(errorDetail).filter(Boolean).join("; ");
+  if (!value || typeof value !== "object") return "";
+  const record = value as Record<string, unknown>;
+  return errorDetail(record.msg ?? record.message ?? record.detail);
 }
 
 function formatQuotaReset(value: string) {

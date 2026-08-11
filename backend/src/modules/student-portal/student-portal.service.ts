@@ -6,7 +6,6 @@ import { AuthenticatedUser } from '../../common/decorators/current-user.decorato
 import * as bcrypt from 'bcryptjs';
 import {
   ApplicationStatusDto,
-  JobSearchPreferenceDto,
   StudentProfileDto,
   StudentProfileCompleteDto,
 } from './dto/student-portal.dto';
@@ -33,6 +32,7 @@ export class StudentPortalService {
       match_score: job.match_score,
       is_entry_level: job.is_entry_level,
       created_at: job.created_at,
+      updated_at: job.updated_at,
     };
   }
 
@@ -50,8 +50,24 @@ export class StudentPortalService {
 
   async jobs(limit?: number, extra: Prisma.jobsWhereInput = {}) {
     const rows = await this.prisma.jobs.findMany({
-      where: { is_entry_level: true, ...extra },
-      orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+      where: {
+        AND: [
+          { is_entry_level: true },
+          extra,
+          {
+            OR: [
+              { title: { contains: 'cyber' } },
+              { title: { contains: 'security' } },
+              { title: { contains: 'SOC' } },
+              { title: { contains: 'SIEM' } },
+              { title: { contains: 'VAPT' } },
+              { description: { contains: 'cybersecurity' } },
+            ],
+          },
+        ],
+      },
+      orderBy: [{ updated_at: 'desc' }, { id: 'desc' }],
+      distinct: ['apply_url'],
       take: this.safeLimit(limit),
     });
     return rows.map((row) => this.jobOut(row));
@@ -449,20 +465,6 @@ export class StudentPortalService {
       ?? await this.prisma.portal_access_settings.findUnique({ where: { scope_key: 'global' } });
     return { courses_enabled: Boolean(row?.courses_enabled), assessments_enabled: Boolean(row?.assessments_enabled), jobs_enabled: Boolean(row?.jobs_enabled), profile_status: profile.status, approval_required: false };
   }
-  async getPreference(email: string) {
-    const row = await this.prisma.student_job_search_preferences.findUnique({ where: { student_email: email.toLowerCase() } });
-    return { search_time_ist: row?.search_time_ist ?? '09:00', active: row?.active ?? false, last_run_on: row?.last_run_on ?? null };
-  }
-
-  async savePreference(email: string, dto: JobSearchPreferenceDto) {
-    const row = await this.prisma.student_job_search_preferences.upsert({
-      where: { student_email: email.toLowerCase() },
-      create: { student_email: email.toLowerCase(), ...dto, updated_at: new Date() },
-      update: { ...dto, updated_at: new Date() },
-    });
-    return { search_time_ist: row.search_time_ist, active: row.active, last_run_on: row.last_run_on };
-  }
-
   async statistics(email: string) {
     const user = await this.prisma.users.findUnique({ where: { email }, include: { students: true } });
     if (!user) throw new NotFoundException('Student account not found');

@@ -1,11 +1,9 @@
 import { Transform } from 'class-transformer';
 import {
-  IsBoolean,
   IsEmail,
   IsIn,
   IsOptional,
   IsString,
-  Matches,
   MaxLength,
   MinLength,
 } from 'class-validator';
@@ -44,16 +42,6 @@ export class StudentProfileDto {
   @IsString() @IsOptional() education_json = '';
   @IsString() @IsOptional() mentor_name = '';
   @IsString() @IsOptional() photo_data_url?: string;
-}
-
-export class JobSearchPreferenceDto {
-  @IsString()
-  @Matches(/^(?:[01]\d|2[0-3]):[0-5]\d$/, { message: 'Time must use HH:MM in IST' })
-  search_time_ist!: string;
-
-  @IsBoolean()
-  @IsOptional()
-  active = true;
 }
 
 export class ModuleVideoCompletionDto {

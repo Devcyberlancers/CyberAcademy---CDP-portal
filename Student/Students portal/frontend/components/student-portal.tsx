@@ -49,6 +49,7 @@ type ExternalJob = {
   match_score: number;
   is_entry_level: boolean;
   created_at?: string;
+  updated_at?: string;
 };
 
 type RawExternalJob = Record<string, unknown>;
@@ -79,7 +80,6 @@ const emptyStudentStatistics: StudentStatistics = {
   last_activity: null
 };
 
-const jobPlatforms = ["naukri", "linkedin", "indeed", "foundit", "wellfound"];
 const defaultJobLocations = [
   "Bengaluru",
   "Hyderabad",
@@ -2099,7 +2099,7 @@ function JobDashboardView({ headerSearch, student, onSectionChange }: { headerSe
 }
 
 function JobsView({ headerSearch }: { headerSearch: string }) {
-  const [activeTab, setActiveTab] = useState<"my" | "all">("my");
+  const [activeTab, setActiveTab] = useState<"my" | "all">("all");
   const [query, setQuery] = useState("");
   const [location, setLocation] = useState("");
   const [jobs, setJobs] = useState<ExternalJob[]>([]);
@@ -2114,9 +2114,6 @@ function JobsView({ headerSearch }: { headerSearch: string }) {
   const [isLoading, setIsLoading] = useState(false);
   const [isScraping, setIsScraping] = useState(false);
   const [appliedHistory, setAppliedHistory] = useState<AppliedJobRecord[]>([]);
-  const [dailySearchTime, setDailySearchTime] = useState("09:00");
-  const [dailySearchActive, setDailySearchActive] = useState(false);
-  const [scheduleNotice, setScheduleNotice] = useState("");
 
   useEffect(() => {
     if (headerSearch) setQuery(`${headerSearch} cybersecurity fresher`);
@@ -2128,7 +2125,6 @@ function JobsView({ headerSearch }: { headerSearch: string }) {
     setApplicationStatuses(readJobApplications());
     setRecentJobs(readRecentJobs());
     void loadAppliedJobs().then(setAppliedHistory).catch(() => setAppliedHistory([]));
-    void loadJobSearchPreference();
     const refreshInterval = window.setInterval(() => void loadStoredJobs(location.trim(), true), 60_000);
     return () => window.clearInterval(refreshInterval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2207,29 +2203,39 @@ function JobsView({ headerSearch }: { headerSearch: string }) {
     }
   }
 
-  async function searchJobs(searchTerm = query.trim(), nextLocation = location.trim()) {
+  async function searchJobs(nextLocation = location.trim()) {
     setIsLoading(true);
     setIsScraping(true);
     setErrors({});
     try {
-      const cleanQuery = searchTerm.length >= 2 ? searchTerm : "cybersecurity fresher";
+      const token = window.localStorage.getItem("cyber-academy-auth-token");
+      if (!token) throw new Error("Your login session expired. Please sign in again.");
       const refreshUrl = new URL("/api/jobs/refresh", apiBaseUrl);
-      refreshUrl.searchParams.set("q", cleanQuery);
       refreshUrl.searchParams.set("location", nextLocation || "India");
-      refreshUrl.searchParams.set("platforms", jobPlatforms.join(","));
-      refreshUrl.searchParams.set("limit_per_source", "6");
+      refreshUrl.searchParams.set("limit_per_source", "10");
 
-      const refreshResponse = await fetch(refreshUrl.toString(), { method: "POST" });
+      const refreshResponse = await fetch(refreshUrl.toString(), {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` }
+      });
       if (!refreshResponse.ok) {
         const message = await refreshResponse.text();
         throw new Error(message || `Job scraping failed (${refreshResponse.status})`);
       }
+      const refreshResult = await refreshResponse.json() as {
+        fetched?: number;
+        errors?: Record<string, string>;
+      };
       await loadStoredJobs(nextLocation);
+      if (!refreshResult.fetched && Object.keys(refreshResult.errors ?? {}).length) {
+        setErrors({ Search: "Live job sources did not return results. Previously saved cybersecurity fresher jobs are still shown." });
+      }
     } catch (error) {
+      await loadStoredJobs(nextLocation, true);
       setErrors({ Search: error instanceof Error ? error.message : "Job search failed. Make sure the backend and MySQL are running." });
-      setIsLoading(false);
     } finally {
       setIsScraping(false);
+      setIsLoading(false);
     }
   }
 
@@ -2237,30 +2243,7 @@ function JobsView({ headerSearch }: { headerSearch: string }) {
     setQuery("");
     setLocation("");
     setStatusFilter("all");
-    await searchJobs("cybersecurity fresher", "");
-  }
-
-  async function loadJobSearchPreference() {
-    const token = window.localStorage.getItem("cyber-academy-auth-token");
-    if (!token) return;
-    const response = await fetch(`${apiBaseUrl}/api/job-search-preference`, { cache: "no-store", headers: { Authorization: `Bearer ${token}` } });
-    if (!response.ok) return;
-    const data = await response.json() as { search_time_ist: string; active: boolean };
-    setDailySearchTime(data.search_time_ist);
-    setDailySearchActive(data.active);
-  }
-
-  async function saveJobSearchPreference() {
-    const token = window.localStorage.getItem("cyber-academy-auth-token");
-    if (!token) return setScheduleNotice("Please log in again to save this schedule.");
-    setScheduleNotice("");
-    const response = await fetch(`${apiBaseUrl}/api/job-search-preference`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ search_time_ist: dailySearchTime, active: dailySearchActive })
-    });
-    if (!response.ok) return setScheduleNotice("Daily search schedule could not be saved.");
-    setScheduleNotice(dailySearchActive ? `Daily cybersecurity job search scheduled for ${dailySearchTime} IST.` : "Automatic daily job search disabled.");
+    await searchJobs("");
   }
 
   const appliedCount = jobs.filter((job) => job.id && (applicationStatuses[String(job.id)]?.status || statusForJob(job.id)) === "applied").length;
@@ -2272,8 +2255,8 @@ function JobsView({ headerSearch }: { headerSearch: string }) {
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
         <div>
           <div className="mb-6 flex w-fit rounded-md bg-white p-1 shadow-sm">
-            <button type="button" onClick={() => setActiveTab("my")} className={`rounded px-8 py-2.5 text-sm ${activeTab === "my" ? "bg-[#3155ff] font-medium text-white" : "text-black"}`}>My Jobs</button>
             <button type="button" onClick={() => setActiveTab("all")} className={`rounded px-8 py-2.5 text-sm ${activeTab === "all" ? "bg-[#3155ff] font-medium text-white" : "text-black"}`}>All Jobs</button>
+            <button type="button" onClick={() => setActiveTab("my")} className={`rounded px-8 py-2.5 text-sm ${activeTab === "my" ? "bg-[#3155ff] font-medium text-white" : "text-black"}`}>My Jobs</button>
           </div>
 
           <div className="mb-7 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -2293,14 +2276,6 @@ function JobsView({ headerSearch }: { headerSearch: string }) {
               </button>
             </div>
           </div>
-
-          <Card className="mb-5 rounded-[12px] border border-[#dfe4ef] bg-white p-5 shadow-sm">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-              <div><h2 className="font-bold text-[#07142f]">Automatic Daily Job Search</h2><p className="mt-1 text-sm text-[#6c7280]">The backend fetches fresh cybersecurity jobs daily at your selected IST time, even when this page is closed.</p></div>
-              <div className="flex flex-wrap items-end gap-3"><label><span className="mb-1 block text-xs font-bold text-[#5a5f68]">Search time (IST)</span><input type="time" value={dailySearchTime} onChange={(event) => setDailySearchTime(event.target.value)} className="h-11 rounded-md border border-[#dbe0e9] px-3" /></label><label className="flex h-11 items-center gap-2 rounded-md border border-[#dbe0e9] px-3 text-sm"><input type="checkbox" checked={dailySearchActive} onChange={(event) => setDailySearchActive(event.target.checked)} className="h-4 w-4 accent-[#3155ff]" /> Enabled</label><button type="button" onClick={() => void saveJobSearchPreference()} className="h-11 rounded-md bg-[#3155ff] px-5 text-sm font-bold text-white">Save Schedule</button></div>
-            </div>
-            {scheduleNotice ? <p className="mt-3 text-sm font-semibold text-[#3155ff]">{scheduleNotice}</p> : null}
-          </Card>
 
           {isFilterOpen && (
             <Card className="mb-5 rounded-[8px] border border-[#dfe4ef] bg-white p-5 shadow-sm">
@@ -2476,8 +2451,8 @@ function onlyCybersecurityJobs(payload: unknown) {
 }
 
 function compareJobsNewestFirst(a: ExternalJob, b: ExternalJob) {
-  const aCreated = a.created_at ? new Date(a.created_at).getTime() : 0;
-  const bCreated = b.created_at ? new Date(b.created_at).getTime() : 0;
+  const aCreated = a.updated_at || a.created_at ? new Date(a.updated_at || a.created_at || 0).getTime() : 0;
+  const bCreated = b.updated_at || b.created_at ? new Date(b.updated_at || b.created_at || 0).getTime() : 0;
   if (Number.isFinite(aCreated) && Number.isFinite(bCreated) && aCreated !== bCreated) {
     return bCreated - aCreated;
   }
@@ -2545,7 +2520,8 @@ function normalizeExternalJob(value: unknown): ExternalJob | null {
     platform: stringField(job.platform),
     match_score: numberField(job.match_score ?? job.matchScore),
     is_entry_level: booleanField(job.is_entry_level ?? job.isEntryLevel, true),
-    created_at: stringField(job.created_at ?? job.createdAt)
+    created_at: stringField(job.created_at ?? job.createdAt),
+    updated_at: stringField(job.updated_at ?? job.updatedAt)
   };
 }
 

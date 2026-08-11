@@ -4,7 +4,7 @@ import {
 import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import {
-  ApplicationStatusDto, JobSearchPreferenceDto, ModuleQuizSubmissionDto, ModuleVideoCompletionDto, StudentProfileDto,
+  ApplicationStatusDto, ModuleQuizSubmissionDto, ModuleVideoCompletionDto, StudentProfileDto,
 } from './dto/student-portal.dto';
 import { StudentPortalService } from './student-portal.service';
 import { ScraperService } from '../scraper/scraper.service';
@@ -91,12 +91,15 @@ export class StudentPortalController {
   statistics(@CurrentUser() user: AuthenticatedUser) { return this.service.statistics(user.sub); }
 
   @Post('jobs/refresh')
+  @UseGuards(JwtAuthGuard)
   refreshJobs(
-    @Query('location') location = 'India', @Query('q') q?: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('location') location = 'India',
     @Query('platforms') platforms = 'naukri,linkedin,indeed,foundit,wellfound',
-    @Query('limit_per_source') limit = '6',
+    @Query('limit_per_source') limit = '10',
   ) {
-    return this.scraper.refresh(location, platforms.split(',').map((v) => v.trim().toLowerCase()).filter(Boolean), Number(limit), q ? [q.trim()] : undefined);
+    this.requireStudent(user);
+    return this.scraper.refresh(location, platforms.split(',').map((v) => v.trim().toLowerCase()).filter(Boolean), Number(limit));
   }
 
   @Get('student-messages')
@@ -106,16 +109,6 @@ export class StudentPortalController {
   @Get('portal-access')
   @UseGuards(JwtAuthGuard)
   access(@CurrentUser() user: AuthenticatedUser) { return this.service.portalAccess(user.sub); }
-
-  @Get('job-search-preference')
-  @UseGuards(JwtAuthGuard)
-  preference(@CurrentUser() user: AuthenticatedUser) { return this.service.getPreference(user.sub); }
-
-  @Put('job-search-preference')
-  @UseGuards(JwtAuthGuard)
-  savePreference(@CurrentUser() user: AuthenticatedUser, @Body() dto: JobSearchPreferenceDto) {
-    return this.service.savePreference(user.sub, dto);
-  }
 
   private requireStudent(user: AuthenticatedUser) {
     if (user.role !== 'student') throw new ForbiddenException('Student permission required');

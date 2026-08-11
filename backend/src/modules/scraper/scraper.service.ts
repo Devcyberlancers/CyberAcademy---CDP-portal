@@ -1,10 +1,16 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
+import { Injectable } from '@nestjs/common';
 import { chromium, BrowserContext, Locator } from 'playwright';
 import { PrismaService } from '../../prisma/prisma.service';
 import { resolve } from 'node:path';
 
-const KEYWORDS = ['Cyber Security Fresher', 'SOC Analyst Fresher', 'Junior Security Engineer'];
+const KEYWORDS = [
+  'Cyber Security Fresher',
+  'Cybersecurity Analyst Fresher',
+  'SOC Analyst Fresher',
+  'Junior Security Engineer',
+  'Information Security Fresher',
+  'Cybersecurity Internship',
+];
 const CONFIG: Record<string, any> = {
   naukri: {
     name: 'Naukri', url: (q: string, l: string) => `https://www.naukri.com/${encodeURIComponent(q).replace(/%20/g, '-')}-jobs-in-${encodeURIComponent(l).replace(/%20/g, '-')}?k=${encodeURIComponent(q)}&l=${encodeURIComponent(l)}&experience=0`,
@@ -30,25 +36,20 @@ const CONFIG: Record<string, any> = {
 
 @Injectable()
 export class ScraperService {
-  private readonly logger = new Logger(ScraperService.name);
-  private running = false;
+  private refreshPromise: Promise<{
+    stored: number; created: number; updated: number; fetched: number; errors: Record<string, string>;
+  }> | null = null;
   constructor(private readonly prisma: PrismaService) {
     // The setup command keeps Chromium here, so the refresh worker does not
     // depend on a developer's or host's global Playwright cache.
     process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve(process.cwd(), '.playwright');
   }
 
-  private async refreshStatus() {
-    const row = await this.prisma.admin_snapshots.findUnique({ where: { key: 'job-refresh-status' } });
-    if (!row) return {} as Record<string, unknown>;
-    try { return JSON.parse(row.payload) as Record<string, unknown>; } catch { return {}; }
-  }
-
   private async saveRefreshStatus(status: Record<string, unknown>) {
     await this.prisma.admin_snapshots.upsert({
       where: { key: 'job-refresh-status' },
-      create: { key: 'job-refresh-status', payload: JSON.stringify(status), updated_by: 'scheduler', updated_at: new Date() },
-      update: { payload: JSON.stringify(status), updated_by: 'scheduler', updated_at: new Date() },
+      create: { key: 'job-refresh-status', payload: JSON.stringify(status), updated_by: 'manual-search', updated_at: new Date() },
+      update: { payload: JSON.stringify(status), updated_by: 'manual-search', updated_at: new Date() },
     });
   }
 
@@ -104,72 +105,93 @@ export class ScraperService {
     } finally { await page.close(); }
   }
 
-  async refresh(location = 'India', platforms = Object.keys(CONFIG), limit = 6, keywords = KEYWORDS) {
-    if (this.running) return { stored: 0, errors: { scheduler: 'Job refresh is already running' } };
-    this.running = true; let browser; let stored = 0; const errors: Record<string, string> = {};
+  async refresh(location = 'India', platforms = Object.keys(CONFIG), limit = 10) {
+    if (this.refreshPromise) return this.refreshPromise;
+    const cleanLocation = String(location || 'India').trim().slice(0, 100) || 'India';
+    const cleanPlatforms = Array.from(new Set(platforms.filter((platform) => CONFIG[platform])));
+    const safePlatforms = cleanPlatforms.length ? cleanPlatforms : Object.keys(CONFIG);
+    const numericLimit = Number(limit);
+    const safeLimit = Number.isFinite(numericLimit) ? Math.min(20, Math.max(1, Math.trunc(numericLimit))) : 10;
+    this.refreshPromise = this.runRefresh(cleanLocation, safePlatforms, safeLimit)
+      .finally(() => { this.refreshPromise = null; });
+    return this.refreshPromise;
+  }
+
+  private async runRefresh(location: string, platforms: string[], limit: number) {
+    let browser;
+    let created = 0;
+    let updated = 0;
+    const errors: Record<string, string> = {};
+    const startedAt = new Date().toISOString();
+    try {
+      await this.saveRefreshStatus({ started_at: startedAt, status: 'running', location, platforms });
+    } catch {
+      // Job discovery must continue even if the optional admin status snapshot is unavailable.
+    }
     try {
       browser = await chromium.launch({ headless: true });
       const context = await browser.newContext({ userAgent: 'Mozilla/5.0 Chrome/122 Safari/537.36', viewport: { width: 1366, height: 900 } });
-      for (const keyword of keywords) {
-        const results = await Promise.all(platforms.filter((p) => CONFIG[p]).map(async (platform) => {
-          try { return await this.scrapePlatform(context, platform, keyword, location, limit); }
-          catch (error) { errors[CONFIG[platform].name] = error instanceof Error ? error.message : String(error); return []; }
-        }));
-        for (const job of results.flat()) {
-          const existing = await this.prisma.jobs.findFirst({ where: { apply_url: job.apply_url } });
-          const now = new Date();
-          if (existing) await this.prisma.jobs.update({ where: { id: existing.id }, data: { ...job, updated_at: now } });
-          else await this.prisma.jobs.create({ data: { ...job, created_at: now, updated_at: now } });
-          stored++;
+      const tasks = KEYWORDS.flatMap((keyword) => platforms.map((platform) => ({ keyword, platform })));
+      const discovered: any[][] = [];
+      let taskIndex = 0;
+      const workers = Array.from({ length: Math.min(5, tasks.length) }, async () => {
+        while (taskIndex < tasks.length) {
+          const task = tasks[taskIndex++];
+          try {
+            discovered.push(await this.scrapePlatform(context, task.platform, task.keyword, location, limit));
+          } catch (error) {
+            errors[`${CONFIG[task.platform].name}: ${task.keyword}`] = error instanceof Error ? error.message : String(error);
+          }
+        }
+      });
+      await Promise.all(workers);
+      await context.close();
+
+      const uniqueJobs = new Map<string, any>();
+      discovered.flat().forEach((job) => {
+        if (job.apply_url && !uniqueJobs.has(job.apply_url)) uniqueJobs.set(job.apply_url, job);
+      });
+      const urls = [...uniqueJobs.keys()];
+      const existingRows = urls.length
+        ? await this.prisma.jobs.findMany({ where: { apply_url: { in: urls } }, orderBy: { id: 'asc' } })
+        : [];
+      const existingByUrl = new Map(existingRows.map((row) => [row.apply_url, row]));
+      for (const job of uniqueJobs.values()) {
+        const existing = existingByUrl.get(job.apply_url);
+        const now = new Date();
+        if (existing) {
+          await this.prisma.jobs.update({ where: { id: existing.id }, data: { ...job, updated_at: now } });
+          updated++;
+        } else {
+          await this.prisma.jobs.create({ data: { ...job, created_at: now, updated_at: now } });
+          created++;
         }
       }
-      await context.close();
-      return { stored, errors };
+      const result = { stored: created + updated, created, updated, fetched: uniqueJobs.size, errors };
+      try {
+        await this.saveRefreshStatus({
+          started_at: startedAt, completed_at: new Date().toISOString(),
+          status: Object.keys(errors).length ? 'completed_with_warnings' : 'completed',
+          location, platforms, ...result,
+        });
+      } catch {
+        // The jobs are already durable; status reporting is best effort.
+      }
+      return result;
     } catch (error) {
       errors.playwright = error instanceof Error ? error.message : String(error);
-      return { stored, errors };
+      const result = { stored: created + updated, created, updated, fetched: created + updated, errors };
+      try {
+        await this.saveRefreshStatus({
+          started_at: startedAt, completed_at: new Date().toISOString(),
+          status: 'failed', location, platforms, ...result,
+        });
+      } catch {
+        // Preserve the useful error returned to the student even if status persistence fails.
+      }
+      return result;
     } finally {
       if (browser) await browser.close();
-      this.running = false;
     }
-  }
-
-  // Poll lightly for student-selected times, while the shared catalogue is
-  // refreshed once per IST calendar day. Status is persisted so a restart
-  // cannot cause a burst of repeat refreshes or hide the last run from admin.
-  @Cron('*/5 * * * *')
-  async scheduledRefresh() {
-    const now = new Date();
-    const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-    const today = `${ist.getFullYear()}-${String(ist.getMonth() + 1).padStart(2, '0')}-${String(ist.getDate()).padStart(2, '0')}`;
-    const time = `${String(ist.getHours()).padStart(2, '0')}:${String(ist.getMinutes()).padStart(2, '0')}`;
-    const due = await this.prisma.student_job_search_preferences.findMany({
-      where: { active: true, search_time_ist: { lte: time }, OR: [{ last_run_on: null }, { last_run_on: { not: today } }] },
-    });
-    const status = await this.refreshStatus();
-    const globalDue = ist.getHours() >= 8 && status.last_global_run_on !== today;
-    if (!due.length && !globalDue) return;
-
-    const startedAt = new Date().toISOString();
-    const result = await this.refresh();
-    const failed = Boolean(result.errors.playwright || result.errors.scheduler);
-    const completedAt = new Date().toISOString();
-    if (!failed && due.length) {
-      await this.prisma.student_job_search_preferences.updateMany({
-        where: { id: { in: due.map((row) => row.id) } }, data: { last_run_on: today },
-      });
-    }
-    await this.saveRefreshStatus({
-      ...status,
-      started_at: startedAt,
-      completed_at: completedAt,
-      status: failed ? 'failed' : 'completed',
-      stored: result.stored,
-      errors: result.errors,
-      due_student_preferences: due.length,
-      ...(globalDue && !failed ? { last_global_run_on: today } : {}),
-    });
-    if (failed) this.logger.error(`Scheduled job refresh failed: ${JSON.stringify(result.errors)}`);
-    else this.logger.log(`Scheduled job refresh stored ${result.stored} jobs`);
   }
 }
