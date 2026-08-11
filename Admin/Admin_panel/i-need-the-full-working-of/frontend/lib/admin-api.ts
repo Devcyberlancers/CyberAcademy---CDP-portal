@@ -304,7 +304,7 @@ export type DbCourse = {
 };
 
 export type StudentLearningAttempt = {
-  attempt_id: number;
+  attempt_id: number | string;
   assessment_id: string;
   assessment_title: string;
   attempt_number: number;
@@ -315,6 +315,11 @@ export type StudentLearningAttempt = {
   violations: number;
   started_at: string;
   submitted_at?: string | null;
+  earned_marks?: number;
+  total_marks?: number;
+  ip_address?: string;
+  browser?: string;
+  operating_system?: string;
 };
 
 export type StudentLearningAssessment = {

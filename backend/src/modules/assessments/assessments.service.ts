@@ -41,7 +41,7 @@ export class AssessmentsService {
       const answer = String(question.answer || question.correctAnswer || question.correct_option_id || '');
       const correct = options.find((option: { id: string; text: string }) => option.id === answer || option.text.trim().toLowerCase() === answer.trim().toLowerCase())?.id
         ?? options[0].id;
-      return { id, text: String(question.text || question.title || `Question ${index + 1}`), options, correct_option_id: correct };
+      return { id, text: String(question.text || question.title || `Question ${index + 1}`), options, correct_option_id: correct, marks: Math.max(1, Number(question.marks) || 1) };
     });
   }
 
@@ -236,7 +236,9 @@ export class AssessmentsService {
   }
 
   private score(questions: any[], answers: Record<string, string>) {
-    return questions.length ? Math.round(questions.filter((q) => answers[q.id] === q.correct_option_id).length / questions.length * 100) : 0;
+    const totalMarks = questions.reduce((sum, question) => sum + Math.max(1, Number(question.marks) || 1), 0);
+    const earnedMarks = questions.reduce((sum, question) => sum + (answers[question.id] === question.correct_option_id ? Math.max(1, Number(question.marks) || 1) : 0), 0);
+    return totalMarks ? Math.round((earnedMarks / totalMarks) * 100) : 0;
   }
 
   async close(id: number, dto: CloseAttemptDto, terminate = false) {

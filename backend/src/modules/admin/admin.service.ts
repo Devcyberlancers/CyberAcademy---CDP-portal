@@ -151,9 +151,8 @@ export class AdminService {
       const progress = progressByEmail.get(email);
       const completedModules = totalModules
         ? moduleDefinitions.map((moduleItem, index) => {
-          const videos = new Set(progress?.videos ?? []);
           const hasTest = Array.isArray(moduleItem.generatedQuestions) && moduleItem.generatedQuestions.length > 0;
-          return hasTest ? Boolean(progress?.quizzes?.[String(index)]?.passed) : videos.has(index);
+          return hasTest ? Boolean(progress?.quizzes?.[String(index)]?.passed) : true;
         }).filter(Boolean).length
         : 0;
       const moduleAttempts = Object.values(progress?.quizzes ?? {}).flatMap((quiz) =>
@@ -457,7 +456,7 @@ export class AdminService {
       this.prisma.admin_snapshots.findMany({ where: { key: { startsWith: 'course-editor-modules-' } } }),
       this.prisma.admin_snapshots.findUnique({ where: { key: `last-login:${email}` } }),
     ]);
-    const modulesByCourse = new Map<number, Array<{ title?: string }>>();
+    const modulesByCourse = new Map<number, Array<{ title?: string; generatedQuestions?: unknown[] }>>();
     for (const row of moduleRows) {
       const match = /^course-editor-modules-(\d+)-v2$/.exec(row.key);
       if (!match) continue;
@@ -470,7 +469,7 @@ export class AdminService {
       try {
         const modules = modulesByCourse.get(Number(match[1])) ?? [];
         const saved = JSON.parse(row.payload) as { videos?: number[]; quizzes?: Record<string, { passed?: boolean }> };
-        const complete = modules.map((_, index) => Boolean(saved.quizzes?.[String(index)]?.passed));
+        const complete = modules.map((moduleItem, index) => Array.isArray(moduleItem.generatedQuestions) && moduleItem.generatedQuestions.length > 0 ? Boolean(saved.quizzes?.[String(index)]?.passed) : true);
         const nextIndex = complete.findIndex((done) => !done);
         courseProgress.push({ percent: modules.length ? Math.round((complete.filter(Boolean).length / modules.length) * 100) : 0, currentModule: nextIndex >= 0 ? modules[nextIndex]?.title : modules.at(-1)?.title });
       } catch { /* malformed progress snapshot */ }
@@ -542,21 +541,43 @@ export class AdminService {
       this.prisma.admin_snapshots.findMany({ where: { key: { startsWith: 'course-editor-modules-' } } }),
       this.prisma.admin_snapshots.findMany({ where: { key: { endsWith: `:${profile.email.toLowerCase()}` } } }),
     ]);
-    const moduleCount = new Map<number, number>();
+    const moduleDefinitions = new Map<number, Array<Record<string, any>>>();
     for (const row of moduleRows) {
       const match = /^course-editor-modules-(\d+)-v2$/.exec(row.key);
       if (!match) continue;
-      try { const modules = JSON.parse(row.payload); if (Array.isArray(modules)) moduleCount.set(Number(match[1]), modules.length); } catch { /* malformed snapshot */ }
+      try { const modules = JSON.parse(row.payload); if (Array.isArray(modules)) moduleDefinitions.set(Number(match[1]), modules); } catch { /* malformed snapshot */ }
     }
     const moduleProgress = new Map<number, number>();
+    const moduleAssessments = new Map<number, any[]>();
     for (const row of progressRows) {
       const match = /^course-progress:(\d+):/.exec(row.key);
       if (!match) continue;
       try {
-        const saved = JSON.parse(row.payload) as { videos?: number[]; quizzes?: Record<string, { passed?: boolean }> };
-        const total = moduleCount.get(Number(match[1])) ?? 0;
-        const completed = Object.values(saved.quizzes ?? {}).filter((quiz) => quiz?.passed).length;
-        moduleProgress.set(Number(match[1]), total ? Math.round((completed / total) * 100) : 0);
+        const courseId = Number(match[1]);
+        const saved = JSON.parse(row.payload) as { quizzes?: Record<string, { passed?: boolean; score?: number; submitted_at?: string; attempts?: any[] }> };
+        const definitions = moduleDefinitions.get(courseId) ?? [];
+        const completed = definitions.filter((moduleItem, index) => Array.isArray(moduleItem.generatedQuestions) && moduleItem.generatedQuestions.length > 0 ? Boolean(saved.quizzes?.[String(index)]?.passed) : true).length;
+        moduleProgress.set(courseId, definitions.length ? Math.round((completed / definitions.length) * 100) : 0);
+        moduleAssessments.set(courseId, definitions.flatMap((moduleItem, index) => {
+          const questions = Array.isArray(moduleItem.generatedQuestions) ? moduleItem.generatedQuestions : [];
+          if (!questions.length) return [];
+          const quiz = saved.quizzes?.[String(index)];
+          const rawAttempts = quiz?.attempts?.length ? quiz.attempts : quiz?.submitted_at ? [{ attemptNumber: 1, score: quiz.score, startedAt: quiz.submitted_at, endedAt: quiz.submitted_at, status: 'completed' }] : [];
+          const attempts = rawAttempts.map((attempt: any, attemptIndex: number) => ({
+            attempt_id: `module-${courseId}-${index}-${attempt.attemptNumber ?? attemptIndex + 1}`,
+            assessment_id: `module:${index}`,
+            assessment_title: String(moduleItem.quiz || moduleItem.title || `Module ${index + 1} Test`),
+            attempt_number: Number(attempt.attemptNumber) || attemptIndex + 1,
+            max_attempts: Math.max(1, Number(moduleItem.maxAttempts) || 3),
+            duration_minutes: Math.max(0, Number(moduleItem.durationMinutes) || 0),
+            status: String(attempt.status || 'completed'), score: Number(attempt.score) || 0,
+            earned_marks: Number(attempt.earnedMarks) || 0, total_marks: Number(attempt.totalMarks) || questions.reduce((sum: number, question: any) => sum + Math.max(1, Number(question.marks) || 1), 0),
+            violations: Number(attempt.violations ?? attempt.tabSwitches) || 0,
+            started_at: attempt.startedAt || quiz?.submitted_at, submitted_at: attempt.endedAt || quiz?.submitted_at,
+            ip_address: attempt.ipAddress || 'Unavailable', browser: attempt.browser || 'Unknown', operating_system: attempt.operatingSystem || 'Unknown',
+          }));
+          return [{ assessment_id: `module:${index}`, assessment_title: String(moduleItem.quiz || moduleItem.title || `Module ${index + 1} Test`), max_attempts: Math.max(1, Number(moduleItem.maxAttempts) || 3), duration_minutes: Math.max(0, Number(moduleItem.durationMinutes) || 0), question_count: questions.length, attempts_used: attempts.length, latest_score: attempts.at(-1)?.score ?? null, latest_status: attempts.at(-1)?.status ?? 'not_attempted', attempts }];
+        }));
       } catch { /* malformed progress */ }
     }
     const demoAssessmentTitles = new Set(['TCS NQT Mock Set 4', 'Intro Module Check', 'Scanning Networks Quiz']);
@@ -575,6 +596,9 @@ export class AdminService {
         violations: attempt.violations,
         started_at: attempt.started_at,
         submitted_at: attempt.ended_at,
+        ip_address: attempt.ip_address || 'Unavailable',
+        browser: attempt.browser || 'Unknown',
+        operating_system: attempt.operating_system || 'Unknown',
       };
     };
     const assessmentOut = (setting: (typeof settings)[number]) => {
@@ -594,13 +618,16 @@ export class AdminService {
     };
     const courses = publishedCourses.map((course) => {
       const prefix = `course:${course.id}:`;
-      const courseSettings = publishedSettings.filter((setting) => setting.assignment_id.startsWith(prefix));
+      const courseSettings = publishedSettings.filter((setting) => setting.assignment_id.startsWith(prefix) && !setting.assignment_id.includes(':module-'));
       const courseAttempts = attempts.filter((attempt) => attempt.assignment_id.startsWith(prefix));
       const completed = courseAttempts.filter((attempt) => attempt.status !== 'in_progress');
       const metadata = course.metadata_json && typeof course.metadata_json === 'object'
         ? course.metadata_json as Record<string, unknown>
         : {};
       const assignment = assignmentMap.get(course.id);
+      const snapshotAssessments = moduleAssessments.get(course.id) ?? [];
+      const snapshotAttempts = snapshotAssessments.flatMap((assessment) => assessment.attempts);
+      const allScores = [...completed.map((attempt) => attempt.score), ...snapshotAttempts.map((attempt) => attempt.score)];
       return {
         id: course.id,
         title: course.title,
@@ -612,12 +639,12 @@ export class AdminService {
         progress_percent: moduleProgress.get(course.id) ?? 0,
         assigned: Boolean(assignment),
         assigned_at: assignment?.assigned_at ?? null,
-        assessment_count: courseSettings.length,
-        attempt_count: courseAttempts.length,
-        average_score: completed.length
-          ? Math.round(completed.reduce((sum, attempt) => sum + attempt.score, 0) / completed.length)
+        assessment_count: courseSettings.length + snapshotAssessments.length,
+        attempt_count: courseAttempts.length + snapshotAttempts.length,
+        average_score: allScores.length
+          ? Math.round(allScores.reduce((sum, score) => sum + score, 0) / allScores.length)
           : null,
-        assessments: courseSettings.map(assessmentOut),
+        assessments: [...snapshotAssessments, ...courseSettings.map(assessmentOut)],
       };
     });
     const standalone = publishedSettings

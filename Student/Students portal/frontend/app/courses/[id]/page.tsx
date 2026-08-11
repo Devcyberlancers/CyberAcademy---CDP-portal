@@ -17,6 +17,8 @@ type TestAttempt = {
   endedAt: string | null;
   durationSeconds: number;
   score: number;
+  earnedMarks?: number;
+  totalMarks?: number;
   passed?: boolean;
   tabSwitches?: number;
   violations?: number;
@@ -31,9 +33,10 @@ type CourseAssessment = {
   maxAttempts: number;
   resumeAllowed?: boolean;
   questionCount: number;
+  totalMarks?: number;
   attempts: TestAttempt[];
 };
-type ModuleQuestion = { question?: string; options?: string[] };
+type ModuleQuestion = { question?: string; options?: string[]; marks?: number };
 type CourseModule = {
   title?: string;
   videoUrl?: string;
@@ -53,6 +56,7 @@ type CourseModule = {
   quizAssignmentId?: string | null;
   maxAttempts?: number;
   durationMinutes?: number;
+  totalMarks?: number;
   quizAttempts?: TestAttempt[];
 };
 type CourseContent = {
@@ -156,6 +160,7 @@ export default function StudentCoursePage({ params }: { params: Promise<{ id: st
             durationMinutes: 0,
             maxAttempts: module.maxAttempts || 3,
             questionCount: module.generatedQuestions.length,
+            totalMarks: module.totalMarks ?? module.generatedQuestions.reduce((sum, question) => sum + Math.max(1, Number(question.marks) || 1), 0),
             attempts: module.quizAttempts || [],
           },
         ]
@@ -287,6 +292,15 @@ function CourseMetric({ icon, label, value, tone }: { icon: ReactNode; label: st
     </div>
   );
 }
+function attemptTotalMarks(attempt: TestAttempt, configuredTotal?: number) {
+  return Math.max(1, Number(attempt.totalMarks) || Number(configuredTotal) || 100);
+}
+
+function attemptEarnedMarks(attempt: TestAttempt, configuredTotal?: number) {
+  if (attempt.earnedMarks !== undefined && Number.isFinite(Number(attempt.earnedMarks))) return Number(attempt.earnedMarks);
+  return Math.round(((Number(attempt.score) || 0) / 100) * attemptTotalMarks(attempt, configuredTotal));
+}
+
 function courseDate(value?: string) {
   if (!value) return "—";
   const date = new Date(value);
@@ -308,7 +322,7 @@ function CourseAssessmentWorkspace({ assessments, courseProgress, onInstructions
   const attempts = selected?.attempts ?? [];
   const chosenAttempt = attempts.find((item) => item.attemptNumber === attemptNumber) || attempts[attempts.length - 1];
   const completedAttempts = attempts.filter((item) => item.status !== "in_progress");
-  const scores = completedAttempts.map((item) => Number(item.score) || 0);
+  const scores = completedAttempts.map((item) => attemptEarnedMarks(item, selected?.totalMarks));
   const average = scores.length ? scores.reduce((sum, score) => sum + score, 0) / scores.length : 0;
   const inProgress = attempts.some((item) => item.status === "in_progress");
   const exhausted = !inProgress && attempts.length >= (selected?.maxAttempts || 1);
@@ -410,7 +424,7 @@ function CourseAssessmentWorkspace({ assessments, courseProgress, onInstructions
                       <td className="p-4">{selected.title}</td>
                       <td className="p-4">{selected.questionCount}</td>
                       <td className="p-4">{selected.durationMinutes || "Unlimited"}</td>
-                      <td className="p-4">100</td>
+                      <td className="p-4">{selected.totalMarks || selected.questionCount}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -435,7 +449,7 @@ function CourseAssessmentWorkspace({ assessments, courseProgress, onInstructions
                   Time Spent <strong className="ml-2">{formatDuration(chosenAttempt.durationSeconds)}</strong>
                 </span>
                 <span className="px-5">
-                  Test Score <strong className="ml-2">{Number(chosenAttempt.score || 0).toFixed(0)} / 100</strong>
+                  Test Score <strong className="ml-2">{attemptEarnedMarks(chosenAttempt, selected.totalMarks)} / {attemptTotalMarks(chosenAttempt, selected.totalMarks)}</strong>
                 </span>
               </div>
               <div className="mt-6 overflow-x-auto rounded-lg border border-[#dfe4f2]">
@@ -452,10 +466,10 @@ function CourseAssessmentWorkspace({ assessments, courseProgress, onInstructions
                   <tbody>
                     <tr>
                       <td className="p-4">{selected.title}</td>
-                      <td className="p-4">{Number(chosenAttempt.score || 0).toFixed(2)}</td>
+                      <td className="p-4">{attemptEarnedMarks(chosenAttempt, selected.totalMarks).toFixed(2)}</td>
                       <td className="p-4">{average.toFixed(2)}</td>
-                      <td className="p-4">{Math.max(...scores, Number(chosenAttempt.score) || 0).toFixed(2)}</td>
-                      <td className="p-4">{Math.min(...scores, Number(chosenAttempt.score) || 0).toFixed(2)}</td>
+                      <td className="p-4">{Math.max(...scores, attemptEarnedMarks(chosenAttempt, selected.totalMarks)).toFixed(2)}</td>
+                      <td className="p-4">{Math.min(...scores, attemptEarnedMarks(chosenAttempt, selected.totalMarks)).toFixed(2)}</td>
                     </tr>
                   </tbody>
                 </table>

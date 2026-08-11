@@ -28,7 +28,10 @@ function firstValid(value: string | undefined, forwarded = false) {
 }
 
 export function resolveClientIp(headers: RequestHeaders, requestIp?: string) {
-  const candidates = [headerValue(headers, 'cf-connecting-ip'), headerValue(headers, 'true-client-ip'), headerValue(headers, 'x-real-ip'), headerValue(headers, 'x-forwarded-for')];
+  // CDN-provided client headers and the left-most forwarded address represent
+  // the browser that initiated the request. x-real-ip is deliberately checked
+  // afterwards because some shared hosts populate it with their reverse proxy.
+  const candidates = [headerValue(headers, 'cf-connecting-ip'), headerValue(headers, 'true-client-ip'), headerValue(headers, 'x-forwarded-for'), headerValue(headers, 'x-real-ip')];
   for (const candidate of candidates) {
     const resolved = firstValid(candidate);
     if (resolved) return resolved;
