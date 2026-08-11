@@ -218,10 +218,40 @@ function parseEducation(value: string | number | null | undefined): StudentEduca
   if (typeof value !== "string" || !value) return [];
   try {
     const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.filter((item): item is StudentEducation => Boolean(item) && typeof item === "object") : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((raw) => {
+      if (!raw || typeof raw !== "object") return [];
+      const item = raw as Record<string, unknown>;
+      const level = normalizeEducationLevel(item.level);
+      if (!level) return [];
+      const text = (camel: string, snake: string) => String(item[camel] ?? item[snake] ?? "");
+      return [{
+        level,
+        institution: text("institution", "institution_name"),
+        boardOrUniversity: text("boardOrUniversity", "board_or_university"),
+        programme: text("programme", "program"),
+        customProgramme: text("customProgramme", "custom_programme"),
+        yearFrom: text("yearFrom", "year_from"),
+        yearTo: text("yearTo", "year_to"),
+        score: text("score", "percentage"),
+        markscardFileName: text("markscardFileName", "markscard_file_name"),
+        markscardDataUrl: text("markscardDataUrl", "markscard_data_url"),
+      } satisfies StudentEducation];
+    });
   } catch {
     return [];
   }
+}
+
+function normalizeEducationLevel(value: unknown): StudentEducation["level"] | null {
+  const key = String(value || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (["class10", "10th", "tenth", "sslc"].includes(key)) return "Class 10";
+  if (["puc", "pu", "12th", "twelfth"].includes(key)) return "PUC";
+  if (key === "diploma") return "Diploma";
+  if (["degree", "bachelors", "bachelor", "undergraduate", "ug"].includes(key)) return "Degree";
+  if (["masters", "master", "postgraduate", "pg"].includes(key)) return "Masters";
+  if (["phd", "doctorate"].includes(key)) return "PhD";
+  return null;
 }
 
 function normalizeName(value: string) {

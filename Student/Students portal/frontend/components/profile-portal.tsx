@@ -73,6 +73,7 @@ function ProfileView({ student, onStudentChange }: { student: StudentAccount; on
   const [passwordStatus, setPasswordStatus] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [isSendingPasswordLink, setIsSendingPasswordLink] = useState(false);
+  const [pendingEducationUploads, setPendingEducationUploads] = useState(0);
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -164,9 +165,15 @@ function ProfileView({ student, onStudentChange }: { student: StudentAccount; on
       setSaveError("Each markscard must be 2 MB or smaller.");
       return;
     }
+    setPendingEducationUploads((count) => count + 1);
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === "string") updateEducation(level, { markscardFileName: file.name, markscardDataUrl: reader.result });
+      setPendingEducationUploads((count) => Math.max(0, count - 1));
+    };
+    reader.onerror = () => {
+      setSaveError(`${level}: the selected markscard could not be read. Please upload it again.`);
+      setPendingEducationUploads((count) => Math.max(0, count - 1));
     };
     reader.readAsDataURL(file);
   }
@@ -176,6 +183,11 @@ function ProfileView({ student, onStudentChange }: { student: StudentAccount; on
   }
 
   async function saveProfile() {
+    if (pendingEducationUploads > 0) {
+      setActiveTab("Additional Information");
+      setSaveError("Please wait while the selected markscard finishes processing.");
+      return;
+    }
     const missing = profileCompletionIssue(draft);
     if (missing) {
       setActiveTab(missing.tab);
@@ -393,8 +405,8 @@ function ProfileView({ student, onStudentChange }: { student: StudentAccount; on
               )}
 
               <div className="mt-8 flex items-center">
-                <button type="button" onClick={saveProfile} disabled={isSaving} className={`inline-flex min-w-[154px] items-center justify-center gap-2 rounded-md px-6 py-3 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(49,85,255,.22)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_12px_24px_rgba(49,85,255,.3)] disabled:cursor-not-allowed disabled:opacity-60 ${saved ? "bg-[#2fae63]" : "bg-[#3155ff] hover:bg-[#2447f1]"}`}>
-                  {isSaving ? "Saving..." : saved ? <><Check size={17} />Profile saved</> : "Save Profile"}
+                <button type="button" onClick={saveProfile} disabled={isSaving || pendingEducationUploads > 0} className={`inline-flex min-w-[154px] items-center justify-center gap-2 rounded-md px-6 py-3 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(49,85,255,.22)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_12px_24px_rgba(49,85,255,.3)] disabled:cursor-not-allowed disabled:opacity-60 ${saved ? "bg-[#2fae63]" : "bg-[#3155ff] hover:bg-[#2447f1]"}`}>
+                  {pendingEducationUploads > 0 ? "Processing document..." : isSaving ? "Saving..." : saved ? <><Check size={17} />Profile saved</> : "Save Profile"}
                 </button>
                 {saveError && <span className="ml-3 text-sm font-semibold text-[#c03434]">{saveError}</span>}
               </div>
@@ -409,15 +421,27 @@ function ProfileView({ student, onStudentChange }: { student: StudentAccount; on
 function profileCompletionIssue(student: StudentAccount): { tab: ProfileTab; message: string } | null {
   const core: Array<[keyof StudentAccount, string, ProfileTab]> = [["fullName", "Full name", "Edit Profile"], ["registrationNumber", "Registration Number", "Edit Profile"], ["email", "Email", "Edit Profile"], ["phone", "Phone", "Edit Profile"], ["gender", "Gender", "Edit Profile"], ["dateOfBirth", "Date of Birth", "Edit Profile"], ["batch", "Batch", "Academic Information"], ["college", "College", "Academic Information"], ["department", "Department", "Academic Information"]];
   for (const [field, label, tab] of core) if (!String(student[field] || "").trim()) return { tab, message: `${label} is required. Complete all fields marked * before saving.` };
-  const education = student.education || [];
-  const complete = (level: StudentEducation["level"]) => {
-    const item = education.find((record) => record.level === level);
-    return Boolean(item?.institution?.trim() && item?.yearFrom?.trim() && item?.yearTo?.trim() && item?.score?.trim() && item?.markscardDataUrl?.trim());
-  };
-  if (!complete("Class 10")) return { tab: "Additional Information", message: "Complete Class 10 details and upload its markscard before saving." };
-  if (!complete("PUC") && !complete("Diploma")) return { tab: "Additional Information", message: "Add complete PUC or Diploma details, including the markscard, before saving." };
-  if (!complete("Degree")) return { tab: "Additional Information", message: "Complete Degree details and upload its markscard before saving." };
+  const class10Issue = educationIssue(student.education, "Class 10");
+  if (class10Issue) return { tab: "Additional Information", message: class10Issue };
+  const pucIssue = educationIssue(student.education, "PUC");
+  const diplomaIssue = educationIssue(student.education, "Diploma");
+  if (pucIssue && diplomaIssue) return { tab: "Additional Information", message: "Complete either PUC or Diploma details. " + (student.education?.some((item) => item.level === "Diploma") ? diplomaIssue : pucIssue) };
+  const degreeIssue = educationIssue(student.education, "Degree");
+  if (degreeIssue) return { tab: "Additional Information", message: degreeIssue };
   return null;
+}
+
+function educationIssue(education: StudentEducation[] | undefined, level: StudentEducation["level"]) {
+  const item = education?.find((record) => record.level === level);
+  const label = level === "Class 10" ? "Class 10" : level;
+  if (!item) return `${label}: details have not been added.`;
+  if (!item.institution?.trim()) return `${label}: School / Institution is required.`;
+  if (!item.yearFrom?.trim()) return `${label}: Year from is required.`;
+  if (!item.yearTo?.trim()) return `${label}: Year to is required.`;
+  if (Number(item.yearFrom) > Number(item.yearTo)) return `${label}: Year from cannot be later than Year to.`;
+  if (!item.score?.trim()) return `${label}: Percentage / CGPA is required.`;
+  if (!item.markscardDataUrl?.trim() && !item.markscardFileName?.trim()) return `${label}: Upload the markscard before saving.`;
+  return "";
 }
 const maxProfilePhotoDimension = 512;
 const maxProfilePhotoDataUrlLength = 55_000;
@@ -540,14 +564,14 @@ function EducationCard({ title, record, onChange, onUpload, onRemove, degree = f
     <section className="rounded-lg border border-[#e1e5ee] bg-[#fbfcff] p-5">
       <h3 className="mb-4 text-base font-bold text-[#07142f]">{title} details{required ? " *" : ""}</h3>
       <FormGrid>
-        <TextField label="School / Institution" value={record.institution} onChange={(value) => onChange({ institution: value })} />
+        <TextField label={`School / Institution${required ? " *" : ""}`} value={record.institution} onChange={(value) => onChange({ institution: value })} />
         <TextField label={degree ? "University" : "Board"} value={record.boardOrUniversity} onChange={(value) => onChange({ boardOrUniversity: value })} />
         {degree || masters ? <SelectField label={masters ? "Master's degree" : "Degree"} value={record.programme} onChange={(value) => onChange({ programme: value, customProgramme: value === "Other" ? record.customProgramme : "" })} options={degreeOptions} /> : <TextField label="Stream / Specialisation" value={record.programme} onChange={(value) => onChange({ programme: value })} />}
         {usingCustomProgramme && <TextField label="Enter degree" value={record.customProgramme} onChange={(value) => onChange({ customProgramme: value })} />}
-        <TextField label="Year from" type="number" value={record.yearFrom} onChange={(value) => onChange({ yearFrom: value })} />
-        <TextField label="Year to" type="number" value={record.yearTo} onChange={(value) => onChange({ yearTo: value })} />
-        <TextField label="Percentage / CGPA" value={record.score} onChange={(value) => onChange({ score: value })} />
-        <label className="grid gap-2 text-sm font-semibold text-[#343946]">Markscard
+        <TextField label={`Year from${required ? " *" : ""}`} type="number" value={record.yearFrom} onChange={(value) => onChange({ yearFrom: value })} />
+        <TextField label={`Year to${required ? " *" : ""}`} type="number" value={record.yearTo} onChange={(value) => onChange({ yearTo: value })} />
+        <TextField label={`Percentage / CGPA${required ? " *" : ""}`} value={record.score} onChange={(value) => onChange({ score: value })} />
+        <label className="grid gap-2 text-sm font-semibold text-[#343946]">Markscard{required ? " *" : ""}
           <input type="file" accept="application/pdf,image/*" onChange={(event) => onUpload(event.target.files?.[0])} className="block w-full text-sm text-[#5a5f68] file:mr-3 file:rounded file:border-0 file:bg-[#eaf0ff] file:px-3 file:py-2 file:font-semibold file:text-[#3155ff]" />
           {record.markscardFileName && <span className="flex items-center gap-3 text-xs font-medium"><span className="text-[#3155ff]">Saved: {record.markscardFileName}</span><button type="button" onClick={onRemove} className="font-semibold text-red-600">Remove</button></span>}
         </label>

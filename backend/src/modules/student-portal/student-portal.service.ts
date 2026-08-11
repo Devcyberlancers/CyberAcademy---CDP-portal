@@ -236,20 +236,35 @@ export class StudentPortalService {
     const email = dto.email.trim().toLowerCase();
     let education: Array<Record<string, unknown>> = [];
     try { const parsed = JSON.parse(dto.education_json || '[]'); education = Array.isArray(parsed) ? parsed : []; } catch { education = []; }
-    const educationComplete = (level: string) => {
-      const record = education.find((item) => item.level === level);
-      return Boolean(record && String(record.institution || '').trim() && String(record.yearFrom || '').trim() && String(record.yearTo || '').trim() && String(record.score || '').trim() && String(record.markscardDataUrl || '').trim());
-    };
-    const higherSecondaryComplete = educationComplete('PUC') || educationComplete('Diploma');
     const required = [dto.full_name, dto.registration_number, dto.phone, dto.gender, dto.date_of_birth, dto.batch, dto.college, dto.department];
     const firstName = dto.first_name || dto.full_name.trim().split(/\s+/)[0] || '';
     const profile = await this.prisma.$transaction(async (tx) => {
-      const existing = await tx.student_profiles.findUnique({ where: { email }, select: { status: true } });
+      const existing = await tx.student_profiles.findUnique({ where: { email }, select: { status: true, education_json: true } });
+      let existingEducation: Array<Record<string, unknown>> = [];
+      try { const parsed = JSON.parse(existing?.education_json || '[]'); existingEducation = Array.isArray(parsed) ? parsed : []; } catch { existingEducation = []; }
+      education = education.map((record) => {
+        const previous = existingEducation.find((item) => item.level === record.level);
+        const fileName = String(record.markscardFileName || '').trim();
+        const dataUrl = String(record.markscardDataUrl || '').trim();
+        return {
+          ...record,
+          markscardDataUrl: dataUrl || (fileName ? String(previous?.markscardDataUrl || '') : ''),
+        };
+      });
+      dto.education_json = JSON.stringify(education);
+      const educationComplete = (level: string) => {
+        const record = education.find((item) => item.level === level);
+        return Boolean(record && String(record.institution || '').trim() && String(record.yearFrom || '').trim() && String(record.yearTo || '').trim() && String(record.score || '').trim() && String(record.markscardDataUrl || '').trim());
+      };
+      const educationReady = educationComplete('Class 10') && (educationComplete('PUC') || educationComplete('Diploma')) && educationComplete('Degree');
+      if (!educationComplete('Class 10')) throw new BadRequestException('Complete the Class 10 institution, years, score, and markscard before saving.');
+      if (!educationComplete('PUC') && !educationComplete('Diploma')) throw new BadRequestException('Complete either PUC or Diploma institution, years, score, and markscard before saving.');
+      if (!educationComplete('Degree')) throw new BadRequestException('Complete the Degree institution, years, score, and markscard before saving.');
       // Approval is an administrative decision. Saving a profile must never
       // allow a student to mark it approved or reset an existing approval.
       const status = existing?.status === 'Approved'
         ? 'Approved'
-        : required.every((value) => value.trim())
+        : required.every((value) => value.trim()) && educationReady
           ? 'Approval Pending by Admin'
           : 'Waiting for Student';
       const { status: _studentProvidedStatus, ...profileData } = dto;
