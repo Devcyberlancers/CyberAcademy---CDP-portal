@@ -680,7 +680,7 @@ function CourseQuiz({ module, answers, onChoose, error, result, onSubmit, onClos
           Submit Test
         </button>
       </header>
-      <div className="grid min-h-0 flex-1 grid-cols-[150px_minmax(0,1fr)]">
+      <div className="grid min-h-0 flex-1 grid-cols-[220px_minmax(0,1fr)]">
         <aside className="flex min-h-0 flex-col border-r bg-white">
           <div className="grid grid-cols-2 gap-2 overflow-y-auto p-3">
             {questions.map((_, index) => (
@@ -689,7 +689,8 @@ function CourseQuiz({ module, answers, onChoose, error, result, onSubmit, onClos
               </button>
             ))}
           </div>
-          <dl className="mt-auto space-y-2 border-t p-3 text-xs">
+          <div className="mt-auto border-t p-2"><ProctorPreview /></div>
+          <dl className="space-y-2 border-t p-3 text-xs">
             <div className="flex justify-between">
               <dt>Answered</dt>
               <dd>
@@ -759,7 +760,6 @@ function CourseQuiz({ module, answers, onChoose, error, result, onSubmit, onClos
           </section>
         </main>
       </div>
-      <ProctorPreview />
       {confirm ? (
         <CourseEndConfirmation
           total={questions.length}
@@ -792,7 +792,7 @@ function ProctorPreview(){
   frame=requestAnimationFrame(measure);
   return()=>{cancelAnimationFrame(frame);source.disconnect();void context.close()};
  },[]);
- return <aside className="fixed bottom-5 right-5 z-[100] w-56 overflow-hidden rounded-lg border border-slate-700 bg-slate-950 text-white shadow-2xl"><div className="relative aspect-video bg-black"><video ref={videoRef} muted playsInline className="h-full w-full object-cover"/><span className="absolute left-2 top-2 rounded bg-red-600 px-2 py-1 text-[10px] font-bold">PROCTORING LIVE</span></div><div className="p-3"><div className="flex items-center gap-2 text-xs"><Mic size={14}/><span>Microphone</span><span className="ml-auto">{level}%</span></div><div className="mt-2 h-1.5 overflow-hidden rounded bg-white/20"><div className="h-full bg-emerald-400 transition-all" style={{width:`${level}%`}}/></div>{warning?<p className="mt-2 rounded bg-amber-500/20 p-2 text-[11px] leading-4 text-amber-200">{warning}</p>:null}</div></aside>;
+ return <aside className="w-full overflow-hidden rounded-lg border border-slate-700 bg-slate-950 text-white shadow"><div className="relative aspect-video bg-black"><video ref={videoRef} muted playsInline className="h-full w-full object-cover"/><span className="absolute left-2 top-2 rounded bg-red-600 px-2 py-1 text-[10px] font-bold">PROCTORING LIVE</span></div><div className="p-3"><div className="flex items-center gap-2 text-xs"><Mic size={14}/><span>Microphone</span><span className="ml-auto">{level}%</span></div><div className="mt-2 h-1.5 overflow-hidden rounded bg-white/20"><div className="h-full bg-emerald-400 transition-all" style={{width:`${level}%`}}/></div>{warning?<p className="mt-2 rounded bg-amber-500/20 p-2 text-[11px] leading-4 text-amber-200">{warning}</p>:null}</div></aside>;
 }
 function CourseEndConfirmation({ total, answered, visited, onCancel, onConfirm }: { total: number; answered: number; visited: number; onCancel: () => void; onConfirm: () => void }) {
   const [word, setWord] = useState("");

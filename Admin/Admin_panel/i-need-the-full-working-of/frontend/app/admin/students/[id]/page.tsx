@@ -150,6 +150,25 @@ export default function StudentDetailPage() {
         <div className="grid gap-5">
           {student.status === "Pending Approval" && registration ? (
             <>
+              <SectionCard title="Profile Approval">
+                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="font-bold text-slate-950">Approve only after the student logs in and fills profile information.</p>
+                    <div className="mt-3 flex flex-wrap gap-2 text-sm">
+                      {registration.criteria.map((item) => (
+                        <span key={item} className="rounded-md bg-emerald-50 px-3 py-2 font-semibold text-emerald-700">{item}</span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button onClick={() => markProfileCompleted(registration.id)} className="h-10 rounded-md border border-portal-line px-4 text-sm font-bold text-slate-700">Profile Filled</button>
+                    <button type="button" onClick={() => void openProfilePreview()} disabled={profilePreviewLoading} className="flex h-10 items-center gap-2 rounded-md border border-[#3155ff] px-4 text-sm font-bold text-[#3155ff] disabled:opacity-50"><Eye size={17} />{profilePreviewLoading ? "Loading Profile..." : "Review Full Profile"}</button><button onClick={() => approveRegistration(registration.id)} className="flex h-10 items-center gap-2 rounded-md bg-emerald-600 px-4 text-sm font-bold text-white"><UserCheck size={17} />Approve</button>
+                    <button onClick={() => rejectRegistration(registration.id)} className="flex h-10 items-center gap-2 rounded-md border border-red-200 px-4 text-sm font-bold text-red-600"><XCircle size={17} />Reject</button>
+                  </div>
+                </div>
+                {profilePreviewNotice ? <p className="text-sm font-semibold text-red-600">{profilePreviewNotice}</p> : null}
+              </SectionCard>
+
               <SectionCard title="Registration Review">
                 <div className="grid gap-4 md:grid-cols-[1fr_auto]">
                   <div>
@@ -194,24 +213,6 @@ export default function StudentDetailPage() {
                 </div>
               </SectionCard>
 
-              <SectionCard title="Profile Approval">
-                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <p className="font-bold text-slate-950">Approve only after the student logs in and fills profile information.</p>
-                    <div className="mt-3 flex flex-wrap gap-2 text-sm">
-                      {registration.criteria.map((item) => (
-                        <span key={item} className="rounded-md bg-emerald-50 px-3 py-2 font-semibold text-emerald-700">{item}</span>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button onClick={() => markProfileCompleted(registration.id)} className="h-10 rounded-md border border-portal-line px-4 text-sm font-bold text-slate-700">Profile Filled</button>
-                    <button type="button" onClick={() => void openProfilePreview()} disabled={profilePreviewLoading} className="flex h-10 items-center gap-2 rounded-md border border-[#3155ff] px-4 text-sm font-bold text-[#3155ff] disabled:opacity-50"><Eye size={17} />{profilePreviewLoading ? "Loading Profile..." : "Review Full Profile"}</button><button onClick={() => approveRegistration(registration.id)} className="flex h-10 items-center gap-2 rounded-md bg-emerald-600 px-4 text-sm font-bold text-white"><UserCheck size={17} />Approve</button>
-                    <button onClick={() => rejectRegistration(registration.id)} className="flex h-10 items-center gap-2 rounded-md border border-red-200 px-4 text-sm font-bold text-red-600"><XCircle size={17} />Reject</button>
-                  </div>
-                </div>
-              {profilePreviewNotice ? <p className="text-sm font-semibold text-red-600">{profilePreviewNotice}</p> : null}
-              </SectionCard>
             </>
           ) : (
             <SectionCard title="Student Details">

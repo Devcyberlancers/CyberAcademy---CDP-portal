@@ -1,8 +1,8 @@
 "use client";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Check, Eye, Plus, Send, Trash2 } from "lucide-react";
-import { createCourseInDb, publishCourseInDb, saveAdminSnapshot } from "@/lib/admin-api";
+import { createCourseInDb, getAdminSnapshot, getCourseStudentProgress, publishCourseInDb, saveAdminSnapshot, updateCourseInDb } from "@/lib/admin-api";
 import { loadCourseCatalog, normalizeCourse, saveCourseCatalog, type AdminCourse } from "@/lib/course-catalog";
 
 type Question={text:string;options:string[];correctIndex:number;marks:number};
@@ -13,13 +13,40 @@ const blankModule=(number:number):ModuleDraft=>({title:`Module ${number}`,testTi
 const field="h-11 w-full rounded-lg border border-portal-line bg-white px-3 outline-none transition focus:border-portal-blue focus:ring-2 focus:ring-blue-100";
 const steps=["Course Details","Schedule & Rules","Modules & Questions","Review"];
 
-export function CourseCreationWizard(){
+export function CourseCreationWizard({courseId}:{courseId?:string}){
  const router=useRouter();
- const [step,setStep]=useState(0),[saving,setSaving]=useState(false),[error,setError]=useState(""),[createdId,setCreatedId]=useState<number|null>(null);
+ const [step,setStep]=useState(0),[saving,setSaving]=useState(false),[loading,setLoading]=useState(Boolean(courseId)),[error,setError]=useState(""),[createdId,setCreatedId]=useState<number|null>(courseId&&/^\d+$/.test(courseId)?Number(courseId):null);
  const [activeModule,setActiveModule]=useState(0);
+ const [progressSummary,setProgressSummary]=useState<{students:number;average:number;completed:number}|null>(null);
  const [course,setCourse]=useState<CourseDraft>({title:"",description:"",mentor:"",category:"Cyber Security",level:"Beginner",visibility:"Public",durationMinutes:60,maxAttempts:3,passPercent:60,startDate:"",endDate:""});
  const [modules,setModules]=useState<ModuleDraft[]>([blankModule(1)]);
  const totalQuestions=useMemo(()=>modules.reduce((sum,module)=>sum+module.questions.length,0),[modules]);
+ useEffect(()=>{
+  if(!courseId)return;
+  let active=true;
+  async function loadExisting(){
+   setLoading(true);setError("");
+   try{
+    const [catalog,savedModules,settings,studentProgress]=await Promise.all([
+     loadCourseCatalog(),
+     getAdminSnapshot<Array<{title?:string;quiz?:string;maxAttempts?:number;durationMinutes?:number;passPercent?:number;generatedQuestions?:Array<{question?:string;options?:string[];answer?:string;marks?:number}>}>>(`course-editor-modules-${courseId}-v2`),
+     getAdminSnapshot<{startDate?:string;endDate?:string;durationMinutes?:number;maxAttempts?:number;passPercent?:number}>(`course-settings-${courseId}-v1`),
+     getCourseStudentProgress(courseId!).catch(()=>null),
+    ]);
+    if(!active)return;
+    const existing=catalog.find((item)=>item.id===courseId);
+    if(!existing)throw new Error("Course could not be loaded from the database.");
+    const first=savedModules?.[0];
+    const parsedDuration=Number(String(existing.duration||"").match(/\d+/)?.[0])||60;
+    setCourse({title:existing.title,description:existing.description||existing.shortDescription||"",mentor:existing.instructor||"",category:existing.category||"Cyber Security",level:existing.level||"Beginner",visibility:existing.visibility||"Public",durationMinutes:settings?.durationMinutes||first?.durationMinutes||parsedDuration,maxAttempts:settings?.maxAttempts||first?.maxAttempts||3,passPercent:settings?.passPercent||first?.passPercent||60,startDate:settings?.startDate||"",endDate:settings?.endDate||""});
+    const restored=(savedModules||[]).map((moduleItem,index)=>({title:moduleItem.title||`Module ${index+1}`,testTitle:moduleItem.quiz||`Module ${index+1} Test`,questions:(moduleItem.generatedQuestions||[]).map((question)=>{const options=(question.options||[]).slice(0,4);while(options.length<4)options.push("");const answerIndex=options.findIndex((option)=>option===question.answer);return{text:question.question||"",options,correctIndex:answerIndex>=0?answerIndex:0,marks:Math.max(1,Number(question.marks)||1)}})}));
+    setModules(restored.length?restored:[blankModule(1)]);setActiveModule(0);setCreatedId(Number(courseId));
+    if(studentProgress){const rows=studentProgress.students;setProgressSummary({students:rows.length,average:rows.length?Math.round(rows.reduce((sum,item)=>sum+item.progress_percent,0)/rows.length):0,completed:rows.filter((item)=>item.progress_percent>=100).length})}
+   }catch(reason){if(active)setError(reason instanceof Error?reason.message:"Course could not be loaded.")}
+   finally{if(active)setLoading(false)}
+  }
+  void loadExisting();return()=>{active=false};
+ },[courseId]);
  function patchCourse(patch:Partial<CourseDraft>){setCourse((value)=>({...value,...patch}));setError("")}
  function patchModule(index:number,patch:Partial<ModuleDraft>){setModules((items)=>items.map((item,i)=>i===index?{...item,...patch}:item));setError("")}
  function patchQuestion(moduleIndex:number,questionIndex:number,patch:Partial<Question>){setModules((items)=>items.map((module,i)=>i!==moduleIndex?module:{...module,questions:module.questions.map((question,q)=>q===questionIndex?{...question,...patch}:question)}));setError("")}
@@ -51,15 +78,20 @@ export function CourseCreationWizard(){
   setSaving(true);setError("");
   try{
    let id=createdId;
+   if(courseId&&id){
+    await updateCourseInDb(id,{title:course.title.trim(),short_description:course.description.trim(),description:course.description.trim(),category:course.category,instructor:course.mentor.trim(),level:course.level,duration:`${course.durationMinutes} Minutes`,visibility:course.visibility.toLowerCase(),start_date:course.startDate||undefined,end_date:course.endDate||undefined,status:"active",metadata:{description:course.description.trim(),short_description:course.description.trim(),instructor:course.mentor.trim(),mentor:course.mentor.trim(),duration:`${course.durationMinutes} Minutes`,durationMinutes:course.durationMinutes,maxAttempts:course.maxAttempts,passPercent:course.passPercent,visibility:course.visibility.toLowerCase(),startDate:course.startDate,endDate:course.endDate}});
+   }
    if(!id){const created=await createCourseInDb({title:course.title.trim(),short_description:course.description.trim(),description:course.description.trim(),category:course.category,instructor:course.mentor.trim(),level:course.level,duration:`${course.durationMinutes} Minutes`,visibility:course.visibility.toLowerCase(),start_date:course.startDate||undefined,end_date:course.endDate||undefined,status:"draft",metadata:{description:course.description.trim(),short_description:course.description.trim(),instructor:course.mentor.trim(),mentor:course.mentor.trim(),duration:`${course.durationMinutes} Minutes`,durationMinutes:course.durationMinutes,maxAttempts:course.maxAttempts,passPercent:course.passPercent,visibility:course.visibility.toLowerCase(),startDate:course.startDate,endDate:course.endDate},modules:modules.map((module,index)=>({title:module.title.trim(),position:index+1,lessons:[]}))});id=created.id;setCreatedId(id)}
    const snapshots=modules.map((module,index)=>({title:module.title.trim(),videoUrl:"",videoSource:"youtube",quiz:module.testTitle.trim(),locked:index>0,resources:[],unlockRule:"video_quiz",maxAttempts:course.maxAttempts,durationMinutes:course.durationMinutes,passPercent:course.passPercent,generatedQuestions:module.questions.map((question)=>({question:question.text.trim(),options:question.options.map((option)=>option.trim()),answer:question.options[question.correctIndex].trim(),explanation:"",marks:question.marks}))}));
    await Promise.all([saveAdminSnapshot(`course-editor-modules-${id}-v2`,snapshots),saveAdminSnapshot(`course-settings-${id}-v1`,{startDate:course.startDate,endDate:course.endDate,durationMinutes:course.durationMinutes,maxAttempts:course.maxAttempts,passPercent:course.passPercent,unlockRule:"video_quiz",certificateEnabled:false})]);
    await publishCourseInDb(id);
-   const catalog=await loadCourseCatalog();const published=normalizeCourse({id:String(id),title:course.title,category:course.category,instructor:course.mentor,status:"Published",students:0,completion:0,modules:modules.length,lessons:0,shortDescription:course.description,description:course.description,level:course.level,duration:`${course.durationMinutes} Minutes`,visibility:course.visibility});
+   const catalog=await loadCourseCatalog();const existing=catalog.find((item)=>item.id===String(id));const published=normalizeCourse({id:String(id),title:course.title,category:course.category,instructor:course.mentor,status:"Published",students:existing?.students??0,completion:existing?.completion??0,modules:modules.length,lessons:existing?.lessons??0,shortDescription:course.description,description:course.description,level:course.level,duration:`${course.durationMinutes} Minutes`,visibility:course.visibility});
    await saveCourseCatalog([published,...catalog.filter((item:AdminCourse)=>item.id!==String(id))]);router.push("/admin/courses");
-  }catch(reason){setError(reason instanceof Error?reason.message:"Course could not be published.");setSaving(false)}
+ }catch(reason){setError(reason instanceof Error?reason.message:"Course could not be published.");setSaving(false)}
  }
+ if(loading)return <div className="grid min-h-80 place-items-center rounded-2xl border border-portal-line bg-white font-semibold text-slate-600">Loading the complete course layout...</div>;
  return <div className="mx-auto max-w-7xl">
+  {courseId?<div className="mb-4 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><span><b>Editing the existing course in place.</b> Student attempts, scores, and progress remain attached to course #{courseId}.</span>{progressSummary?<span className="flex flex-wrap gap-2"><b className="rounded-full bg-white px-3 py-1">{progressSummary.students} students</b><b className="rounded-full bg-white px-3 py-1">{progressSummary.average}% average</b><b className="rounded-full bg-white px-3 py-1">{progressSummary.completed} completed</b></span>:null}</div>:null}
   <div className="mb-6 grid gap-3 md:grid-cols-4">{steps.map((label,index)=><button key={label} type="button" onClick={()=>index<step&&setStep(index)} className={`flex items-center gap-3 rounded-xl border p-4 text-left ${index===step?"border-portal-blue bg-blue-50":index<step?"border-emerald-200 bg-white":"border-portal-line bg-white"}`}><span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-sm font-bold ${index<step?"bg-emerald-600 text-white":index===step?"bg-portal-blue text-white":"bg-slate-100 text-slate-500"}`}>{index<step?<Check size={16}/>:index+1}</span><span><b className="block text-sm text-slate-900">{label}</b><small className="text-slate-500">Step {index+1} of 4</small></span></button>)}</div>
   <section className="overflow-hidden rounded-2xl border border-portal-line bg-white shadow-sm">
    <header className="border-b border-portal-line bg-gradient-to-r from-blue-50 to-white px-6 py-5"><p className="text-xs font-bold uppercase tracking-[.16em] text-portal-blue">Step {step+1} of 4</p><h1 className="mt-1 text-2xl font-bold text-slate-950">{steps[step]}</h1><p className="mt-1 text-sm text-slate-500">{step===0?"Define the course identity students will see.":step===1?"Set availability, timing, scoring, and attempt rules.":step===2?"Create modules and enter every question manually.":"Confirm the complete student-facing course before publishing."}</p></header>
@@ -70,7 +102,7 @@ export function CourseCreationWizard(){
     {step===3?<ReviewStep course={course} modules={modules} totalQuestions={totalQuestions}/>:null}
     {error?<p className="mt-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</p>:null}
    </div>
-   <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-portal-line bg-slate-50 px-6 py-5"><button type="button" onClick={()=>step===0?router.push("/admin/courses"):setStep((value)=>value-1)} className="inline-flex h-11 items-center gap-2 rounded-lg border border-portal-line bg-white px-5 text-sm font-bold text-slate-700"><ArrowLeft size={17}/>{step===0?"Cancel":"Back"}</button>{step<3?<button type="button" onClick={next} className="inline-flex h-11 items-center gap-2 rounded-lg bg-portal-blue px-6 text-sm font-bold text-white">Next<ArrowRight size={17}/></button>:<button type="button" onClick={()=>void publish()} disabled={saving} className="inline-flex h-11 items-center gap-2 rounded-lg bg-emerald-600 px-6 text-sm font-bold text-white shadow-sm disabled:opacity-60">{saving?"Publishing...":<><Send size={17}/>Save and Publish to Student Portal</>}</button>}</footer>
+   <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-portal-line bg-slate-50 px-6 py-5"><button type="button" onClick={()=>step===0?router.push("/admin/courses"):setStep((value)=>value-1)} className="inline-flex h-11 items-center gap-2 rounded-lg border border-portal-line bg-white px-5 text-sm font-bold text-slate-700"><ArrowLeft size={17}/>{step===0?"Cancel":"Back"}</button>{step<3?<button type="button" onClick={next} className="inline-flex h-11 items-center gap-2 rounded-lg bg-portal-blue px-6 text-sm font-bold text-white">Next<ArrowRight size={17}/></button>:<button type="button" onClick={()=>void publish()} disabled={saving} className="inline-flex h-11 items-center gap-2 rounded-lg bg-emerald-600 px-6 text-sm font-bold text-white shadow-sm disabled:opacity-60">{saving?"Publishing...":<><Send size={17}/>{courseId?"Save Changes and Publish":"Save and Publish to Student Portal"}</>}</button>}</footer>
   </section>
  </div>;
 }
