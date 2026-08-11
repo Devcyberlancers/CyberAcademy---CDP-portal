@@ -128,11 +128,15 @@ export class AdminService {
       }),
       this.prisma.admin_snapshots.findUnique({ where: { key: `course-editor-modules-${courseId}-v2` } }),
     ]);
-    let totalModules = 0;
-    try { totalModules = Array.isArray(moduleSnapshot ? JSON.parse(moduleSnapshot.payload) : []) ? JSON.parse(moduleSnapshot!.payload).length : 0; } catch { totalModules = 0; }
+    let moduleDefinitions: Array<{ generatedQuestions?: unknown[] }> = [];
+    try {
+      const parsed = moduleSnapshot ? JSON.parse(moduleSnapshot.payload) : [];
+      moduleDefinitions = Array.isArray(parsed) ? parsed : [];
+    } catch { moduleDefinitions = []; }
+    const totalModules = moduleDefinitions.length;
     const progressSnapshots = await this.prisma.admin_snapshots.findMany({ where: { key: { startsWith: `course-progress:${courseId}:` } } });
     const progressByEmail = new Map(progressSnapshots.map((snapshot) => {
-      try { return [snapshot.key.slice(`course-progress:${courseId}:`.length), JSON.parse(snapshot.payload) as { videos?: number[]; quizzes?: Record<string, { passed?: boolean }> }]; }
+      try { return [snapshot.key.slice(`course-progress:${courseId}:`.length), JSON.parse(snapshot.payload) as { videos?: number[]; quizzes?: Record<string, { passed?: boolean; score?: number; submitted_at?: string; attempts?: Array<{ score?: number; endedAt?: string; startedAt?: string }> }> }]; }
       catch { return [snapshot.key.slice(`course-progress:${courseId}:`.length), {}]; }
     }));
     const academicByEmail = new Map(academics.map((student) => [student.users.email.toLowerCase(), student]));
@@ -146,12 +150,18 @@ export class AdminService {
       const completedAssessments = new Set(completed.map((attempt) => attempt.assignment_id)).size;
       const progress = progressByEmail.get(email);
       const completedModules = totalModules
-        ? Array.from({ length: totalModules }, (_, index) => {
+        ? moduleDefinitions.map((moduleItem, index) => {
           const videos = new Set(progress?.videos ?? []);
-          const quiz = progress?.quizzes?.[String(index)]?.passed ?? false;
-          return videos.has(index) && quiz;
+          const hasTest = Array.isArray(moduleItem.generatedQuestions) && moduleItem.generatedQuestions.length > 0;
+          return hasTest ? Boolean(progress?.quizzes?.[String(index)]?.passed) : videos.has(index);
         }).filter(Boolean).length
         : 0;
+      const moduleAttempts = Object.values(progress?.quizzes ?? {}).flatMap((quiz) =>
+        quiz.attempts?.length ? quiz.attempts : quiz.submitted_at ? [{ score: quiz.score, endedAt: quiz.submitted_at }] : []);
+      const scoredAttempts = [
+        ...completed.map((attempt) => ({ score: attempt.score, date: attempt.ended_at ?? attempt.started_at })),
+        ...moduleAttempts.map((attempt) => ({ score: Number(attempt.score) || 0, date: new Date(attempt.endedAt ?? attempt.startedAt ?? 0) })),
+      ].sort((left, right) => right.date.getTime() - left.date.getTime());
       return {
         student_id: profile.id,
         student_name: profile.full_name || profile.first_name || profile.email,
@@ -165,12 +175,12 @@ export class AdminService {
           : 0,
         assessments_completed: completedModules || completedAssessments,
         total_assessments: totalModules || totalAssessments,
-        attempts: studentAttempts.length,
-        average_score: completed.length
-          ? Math.round(completed.reduce((sum, attempt) => sum + attempt.score, 0) / completed.length)
+        attempts: studentAttempts.length + moduleAttempts.length,
+        average_score: scoredAttempts.length
+          ? Math.round(scoredAttempts.reduce((sum, attempt) => sum + attempt.score, 0) / scoredAttempts.length)
           : null,
-        latest_score: completed[0]?.score ?? null,
-        latest_activity: studentAttempts[0]?.ended_at ?? studentAttempts[0]?.started_at ?? null,
+        latest_score: scoredAttempts[0]?.score ?? null,
+        latest_activity: scoredAttempts[0]?.date ?? null,
       };
     });
     return { course: this.courseOut(course), total: rows.length, students: rows };

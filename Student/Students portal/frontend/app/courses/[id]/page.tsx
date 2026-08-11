@@ -579,6 +579,24 @@ function CourseQuiz({ module, answers, onChoose, error, result, onSubmit, onClos
     if (secondsLeft === 0 && !result) submit();
   }, [secondsLeft, result]);
   useEffect(() => {
+    const screenWindow=window as Window & { __cyberAcademyScreenStream?: MediaStream };
+    const stream=screenWindow.__cyberAcademyScreenStream;
+    const track=stream?.getVideoTracks()[0];
+    const sharingEnded=()=>{
+      if(result)return;
+      tabSwitches.current+=1;
+      setConfirm(true);
+    };
+    track?.addEventListener("ended",sharingEnded);
+    return()=>track?.removeEventListener("ended",sharingEnded);
+  },[result]);
+  useEffect(() => {
+    if(!result)return;
+    const screenWindow=window as Window & { __cyberAcademyScreenStream?: MediaStream };
+    screenWindow.__cyberAcademyScreenStream?.getTracks().forEach((track)=>track.stop());
+    delete screenWindow.__cyberAcademyScreenStream;
+  },[result]);
+  useEffect(() => {
     const block = (event: Event) => event.preventDefault();
     const keys = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && ["c", "v", "x", "a"].includes(event.key.toLowerCase())) event.preventDefault();
@@ -784,33 +802,30 @@ function CourseEndConfirmation({ total, answered, visited, onCancel, onConfirm }
   );
 }
 function PlatformInstructions({ assessment, onClose }: { assessment: CourseAssessment; onClose: () => void }) {
-  const items = ["Use a laptop or desktop; mobile devices are not recommended for coding tests.", "The test pauses after 60 seconds without internet.", "Use the latest version of Chrome, Edge, Firefox, Safari, or Opera.", "Enable third-party cookies and allow camera and microphone access.", "Maintain uninterrupted internet with at least 2 Mbps download and upload speed.", "Set the system clock to GMT +5:30 (Mumbai, Kolkata, Chennai, New Delhi).", "Do not change tabs or open notifications/pop-ups during the test.", "Copy, cut, paste, context menus, and browser navigation are disabled in secure test mode.", "Answers are saved when submitted. Type END when prompted to finish a full assessment."];
+  void assessment;
+  const sections = [
+    ["Navigating Your Test:", ["The time available to complete is always visible in the countdown timer at the top right of the test screen.", "If sectional lock is enabled, the section tab displays its own countdown timer.", "Bookmark an answer for later review by clicking the flag icon in the test screen.", "All selected answers are saved automatically."]],
+    ["Instructions for Coding Section:", ["Click Submit Code to submit code for evaluation. Code that is not submitted will not be evaluated.", "Changing the coding language can clear code already entered."]],
+    ["Instructions for Video Questions:", ["Record your response as a video for this section.", "Click Start Recording to record and Submit Recording to finish. A submitted recording cannot be replaced."]],
+    ["Important Instructions for Proctored Test:", ["Use a reliable, uninterrupted internet connection.", "Do not cover the camera and remain clearly visible with both ears in frame.", "Block system notifications before starting and do not turn away from the monitor.", "Do not use a phone, external calculator, another person, or any unauthorized assistance.", "Fullscreen, tab changes, focus changes, clipboard actions, and screen sharing are monitored throughout the test."]],
+    ["Submitting Your Exam:", ["Click Submit Test and enter END in the confirmation field to finish.", "The test is submitted automatically when the allotted time expires."]],
+    ["Caution:", ["Do not refresh the page or use the browser back button while a test is in progress.", "After an internet or power interruption, sign in again and resume only when the platform allows it."]],
+  ] as const;
   return (
     <section className="fixed inset-0 z-[60] grid place-items-center bg-slate-950/55 p-4" role="dialog" aria-modal="true">
-      <div className="flex max-h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
-        <header className="flex shrink-0 items-center justify-between border-b p-5">
-          <div>
-            <p className="text-sm font-bold text-[#3155ff]">{assessment.title}</p>
-            <h2 className="text-2xl font-bold">Platform Instructions</h2>
-          </div>
-          <button onClick={onClose} className="grid h-10 w-10 place-items-center rounded-full border" aria-label="Close">
-            <X size={20} />
+      <div className="flex max-h-[78vh] w-full max-w-5xl flex-col overflow-hidden rounded-[18px] bg-white shadow-2xl">
+        <header className="mx-8 flex shrink-0 items-center justify-between border-b border-slate-200 py-6">
+          <h2 className="text-[22px] font-bold text-[#111827]">Platform Instructions</h2>
+          <button onClick={onClose} className="grid h-10 w-10 place-items-center text-slate-500" aria-label="Close instructions">
+            <X size={26} />
           </button>
         </header>
-        <div className="overflow-y-auto p-6">
-          <h3 className="text-lg font-bold">Please carefully read the following:</h3>
-          <ul className="mt-4 list-disc space-y-3 pl-6 text-[15px] leading-6 text-[#4d5360]">
-            {items.map((item) => (
-              <li key={item} className="pl-1 marker:text-[#3155ff]">
-                {item}
-              </li>
-            ))}
-          </ul>
-          <div className="mt-6 rounded-lg bg-amber-50 p-4 font-semibold text-amber-800">Leaving the test tab may automatically submit the current attempt.</div>
+        <div className="space-y-7 overflow-y-auto px-8 py-7">
+          {sections.map(([title,items])=><InstructionBlock key={title} title={title}><ul className="space-y-3">{items.map((item)=><li key={item} className="flex gap-4 text-[15px] leading-6 text-[#5f6368]"><span className="mt-[7px] h-3 w-3 shrink-0 rotate-45 bg-[#969696]"/><span>{item}</span></li>)}</ul></InstructionBlock>)}
         </div>
-        <footer className="flex shrink-0 justify-end border-t bg-white p-4">
-          <button onClick={onClose} className="rounded-md bg-[#3155ff] px-5 py-2.5 font-bold text-white">
-            Close
+        <footer className="flex shrink-0 justify-end border-t border-slate-200 bg-white px-8 py-5">
+          <button onClick={onClose} className="rounded border border-slate-400 bg-white px-5 py-2.5 font-semibold text-slate-700">
+            Close Instructions
           </button>
         </footer>
       </div>
@@ -821,7 +836,7 @@ function InstructionBlock({ title, children }: { title: string; children: ReactN
   return (
     <section>
       <h3 className="text-base font-bold text-[#07142f]">{title}</h3>
-      <div className="mt-2 space-y-2">{children}</div>
+      <div className="mt-3 space-y-2">{children}</div>
     </section>
   );
 }

@@ -327,6 +327,7 @@ export class StudentPortalService {
       this.prisma.admin_snapshots.findMany({ where: { key: { startsWith: 'course-editor-modules-' } } }),
       this.prisma.admin_snapshots.findMany({ where: { key: { endsWith: `:${email.toLowerCase()}` }, } }),
     ]);
+    const moduleDefinitions = new Map<number, Array<{ generatedQuestions?: unknown[] }>>();
     const moduleCount = new Map<number, number>();
     const quizCount = new Map<number, number>();
     for (const snapshot of moduleSnapshots) {
@@ -335,6 +336,7 @@ export class StudentPortalService {
       try {
         const modules = JSON.parse(snapshot.payload);
         if (!Array.isArray(modules)) continue;
+        moduleDefinitions.set(Number(match[1]), modules);
         moduleCount.set(Number(match[1]), modules.length);
         quizCount.set(Number(match[1]), modules.filter((module: any) => Array.isArray(module?.generatedQuestions) && module.generatedQuestions.length > 0).length);
       } catch { /* ignore malformed draft */ }
@@ -345,9 +347,14 @@ export class StudentPortalService {
       if (!match) continue;
       try {
         const progress = JSON.parse(snapshot.payload) as { videos?: number[]; quizzes?: Record<string, { passed?: boolean }> };
+        const courseId = Number(match[1]);
+        const definitions = moduleDefinitions.get(courseId) ?? [];
         const videos = new Set(progress.videos ?? []);
-        const completed = [...videos].filter((index) => progress.quizzes?.[String(index)]?.passed).length;
-        completedCount.set(Number(match[1]), completed);
+        const completed = definitions.filter((moduleItem, index) => {
+          const hasTest = Array.isArray(moduleItem.generatedQuestions) && moduleItem.generatedQuestions.length > 0;
+          return hasTest ? Boolean(progress.quizzes?.[String(index)]?.passed) : videos.has(index);
+        }).length;
+        completedCount.set(courseId, completed);
       } catch { /* ignore malformed progress */ }
     }
     return rows.map(({ metadata_json, ...row }) => {

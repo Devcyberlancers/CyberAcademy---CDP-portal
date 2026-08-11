@@ -1369,12 +1369,16 @@ function CourseCard({
         <span className="rounded-md bg-[#f3f5f9] px-2 py-1 text-xs italic text-[#9aa1ad]">i</span>
       </div>
       <h3 className="line-clamp-2 text-lg font-bold text-black">{course.title}</h3>
-      <div className="mt-5 h-1.5 rounded-full bg-[#d6d6d6]">
+      <div className="mt-5 flex items-center justify-between text-sm">
+        <span className="font-semibold text-[#4d5360]">Your progress</span>
+        <strong className="text-[#3155ff]">{progress}%</strong>
+      </div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#d6d6d6]">
         <div className="h-full rounded-full bg-[#3155ff]" style={{ width: `${progress}%` }} />
       </div>
       <div className={`mt-3 flex justify-between text-sm ${status === "completed" ? "text-[#259b42]" : status === "active" ? "text-[#3155ff]" : "text-red-500"}`}>
         <span>{statusLabel}</span>
-        <span>{progress}%</span>
+        <span>{status === "completed" ? "Course complete" : "In progress"}</span>
       </div>
       <div className="mt-7 grid grid-cols-2 gap-4 text-sm">
         <CourseStat value={course.assessments} label="Quiz" />
