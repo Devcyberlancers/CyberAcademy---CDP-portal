@@ -392,8 +392,14 @@ export class StudentPortalService {
     const module = modules[moduleIndex];
     if (!module || !Array.isArray(module.generatedQuestions) || !module.generatedQuestions.length) throw new NotFoundException('Module quiz not found');
     const questions = module.generatedQuestions;
-    const correct = questions.filter((question, index) => String(answers[String(index)] ?? '').trim() === String(question.answer ?? '').trim()).length;
-    const score = Math.round((correct / questions.length) * 100);
+    const totalMarks = questions.reduce((sum, question) => sum + Math.max(1, Number(question.marks) || 1), 0);
+    const earnedMarks = questions.reduce((sum, question, index) => {
+      const correct = String(answers[String(index)] ?? '').trim() === String(question.answer ?? '').trim();
+      return sum + (correct ? Math.max(1, Number(question.marks) || 1) : 0);
+    }, 0);
+    const score = totalMarks > 0 ? Math.round((earnedMarks / totalMarks) * 100) : 0;
+    const requiredScore = Math.max(1, Math.min(100, Number(module.passPercent) || 60));
+    const passed = score >= requiredScore;
     const key = `course-progress:${courseId}:${email.toLowerCase()}`;
     type QuizAttempt = { attemptNumber: number; startedAt: string; endedAt: string; durationSeconds: number; score: number; passed: boolean; tabSwitches: number; browser: string; operatingSystem: string; ipAddress: string };
     type QuizProgress = { score: number; passed: boolean; submitted_at: string; attempts?: QuizAttempt[] };
@@ -407,11 +413,11 @@ export class StudentPortalService {
     const startedAt = Number.isNaN(parsedStart.getTime()) || parsedStart > endedAt ? endedAt : parsedStart;
     const agent = metadata.userAgent || '';
     const detectedBrowser = agent.includes('Edg/') ? 'Microsoft Edge' : agent.includes('Chrome/') ? 'Chrome' : agent.includes('Firefox/') ? 'Firefox' : agent.includes('Safari/') ? 'Safari' : 'Browser';
-    const attempt: QuizAttempt = { attemptNumber: attempts.length + 1, startedAt: startedAt.toISOString(), endedAt: endedAt.toISOString(), durationSeconds: Math.max(0, Math.floor((endedAt.getTime() - startedAt.getTime()) / 1000)), score, passed: score >= 60, tabSwitches: Math.max(0, Number(metadata.tabSwitches) || 0), browser: metadata.browser?.trim() || detectedBrowser, operatingSystem: metadata.operatingSystem?.trim() || 'Unknown', ipAddress: metadata.ip?.trim() || 'Unavailable' };
+    const attempt: QuizAttempt = { attemptNumber: attempts.length + 1, startedAt: startedAt.toISOString(), endedAt: endedAt.toISOString(), durationSeconds: Math.max(0, Math.floor((endedAt.getTime() - startedAt.getTime()) / 1000)), score, passed, tabSwitches: Math.max(0, Number(metadata.tabSwitches) || 0), browser: metadata.browser?.trim() || detectedBrowser, operatingSystem: metadata.operatingSystem?.trim() || 'Unknown', ipAddress: metadata.ip?.trim() || 'Unavailable' };
     attempts.push(attempt);
-    const quizzes = { ...(current.quizzes ?? {}), [String(moduleIndex)]: { score, passed: score >= 60, submitted_at: endedAt.toISOString(), attempts } };
+    const quizzes = { ...(current.quizzes ?? {}), [String(moduleIndex)]: { score, passed, submitted_at: endedAt.toISOString(), attempts } };
     await this.prisma.admin_snapshots.upsert({ where: { key }, create: { key, payload: JSON.stringify({ videos: current.videos ?? [], quizzes }), updated_by: email, updated_at: endedAt }, update: { payload: JSON.stringify({ videos: current.videos ?? [], quizzes }), updated_by: email, updated_at: endedAt } });
-    return { submitted: true, score, passed: score >= 60, required_score: 60, attempt, attemptsUsed: attempts.length, maxAttempts };
+    return { submitted: true, score, earnedMarks, totalMarks, passed, required_score: requiredScore, attempt, attemptsUsed: attempts.length, maxAttempts };
   }
 
   async courseContent(courseId: number, email: string) {
@@ -440,7 +446,7 @@ export class StudentPortalService {
       const accessible = index === 0 || previousComplete;
       const required = module.unlockRule === 'manual' ? true : quizPassed;
       previousComplete = accessible && required;
-      const publicQuestions = questions.map((question: any) => ({ question: question.question, options: question.options }));
+      const publicQuestions = questions.map((question: any) => ({ question: question.question, options: question.options, marks: Math.max(1, Number(question.marks) || 1) }));
       const quizProgress = (progress as any)?.quizzes?.[String(index)];
       return { ...module, generatedQuestions: publicQuestions, locked: !accessible, accessible, completed: required, videoCompleted, quizPassed, maxAttempts: Math.max(1, Math.min(20, Number(module.maxAttempts || 3))), quizAttempts: Array.isArray(quizProgress?.attempts) ? quizProgress.attempts : quizProgress?.submitted_at ? [{ attemptNumber: 1, startedAt: quizProgress.submitted_at, endedAt: quizProgress.submitted_at, durationSeconds: 0, score: quizProgress.score, passed: quizProgress.passed, tabSwitches: 0, browser: 'Unknown', operatingSystem: 'Unknown', ipAddress: 'Unavailable' }] : [] };
     });

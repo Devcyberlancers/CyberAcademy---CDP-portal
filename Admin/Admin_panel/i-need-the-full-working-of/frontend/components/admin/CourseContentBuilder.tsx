@@ -23,6 +23,7 @@ type QuizQuestion = {
   options: string[];
   answer: string;
   explanation?: string;
+  marks: number;
 };
 
 type ModuleItem = {
@@ -71,7 +72,8 @@ function normalizeModule(module: Partial<ModuleItem> & { title: string }): Modul
       question: question.question,
       options: question.options?.length ? question.options.slice(0, 4) : ["", "", "", ""],
       answer: question.answer,
-      explanation: question.explanation ?? ""
+      explanation: question.explanation ?? "",
+      marks: Math.max(1, Number(question.marks) || 1)
     }))
   };
 }
@@ -101,47 +103,10 @@ function moduleAssessmentItems(modules: ModuleItem[]) {
         text: question.question,
         options: question.options,
         answer: question.answer,
+        marks: question.marks,
       })),
     }];
   });
-}
-
-function videoContext(module: ModuleItem) {
-  if (module.videoSource === "upload") return module.uploadedVideoName ? `uploaded video "${module.uploadedVideoName}"` : "uploaded teaching video";
-  if (module.videoUrl.includes("youtube.com") || module.videoUrl.includes("youtu.be")) return "linked YouTube lesson";
-  return "teaching video";
-}
-
-function topicBank(topic: string) {
-  const lower = topic.toLowerCase();
-  if (lower.includes("footprint") || lower.includes("recon")) {
-    return ["open-source intelligence", "passive reconnaissance", "active reconnaissance", "scope control", "evidence notes"];
-  }
-  if (lower.includes("scan")) return ["host discovery", "port scanning", "service detection", "scan timing", "false positives"];
-  if (lower.includes("enumeration")) return ["service enumeration", "user discovery", "banner grabbing", "permission boundaries", "documentation"];
-  if (lower.includes("vulnerab")) return ["vulnerability severity", "CVSS basics", "verification", "remediation priority", "risk reporting"];
-  if (lower.includes("malware")) return ["malware behavior", "indicators of compromise", "safe analysis", "persistence", "containment"];
-  if (lower.includes("sniff") || lower.includes("spoof")) return ["packet capture", "ARP spoofing", "traffic inspection", "mitigation", "ethical limits"];
-  if (lower.includes("system")) return ["privilege concepts", "access control", "hardening", "audit trails", "least privilege"];
-  return ["authorized testing", "core terminology", "practical workflow", "common mistake", "completion criteria"];
-}
-
-function buildFiveQuestions(module: ModuleItem): QuizQuestion[] {
-  const topic = module.title.trim() || "this module";
-  const source = videoContext(module);
-  const concepts = topicBank(topic);
-
-  return concepts.slice(0, 5).map((concept, index) => ({
-    question: `Q${index + 1}. In ${topic}, what best describes ${concept} from the ${source}?`,
-    options: [
-      `The correct ${concept} concept applied within the lesson scope`,
-      "A random action outside the module objective",
-      "A shortcut that skips verification and notes",
-      "Only watching the video without understanding the concept"
-    ],
-    answer: `The correct ${concept} concept applied within the lesson scope`,
-    explanation: `Expected answer should match the ${topic} lesson objective and the admin-provided video/resource material.`
-  }));
 }
 
 export function CourseContentBuilder({ courseId }: CourseContentBuilderProps) {
@@ -307,15 +272,6 @@ export function CourseContentBuilder({ courseId }: CourseContentBuilderProps) {
     setNotice("Module removed and course content saved.");
   }
 
-  function generateQuiz() {
-    const questions = buildFiveQuestions(draft);
-    persistModule({
-      ...draft,
-      quiz: draft.quiz || `${draft.title} - 5 Question Check`,
-      generatedQuestions: questions
-    });
-  }
-
   function updateGeneratedQuestion(index: number, question: QuizQuestion) {
     const next = [...draft.generatedQuestions];
     next[index] = question;
@@ -331,7 +287,8 @@ export function CourseContentBuilder({ courseId }: CourseContentBuilderProps) {
           question: `Question ${draft.generatedQuestions.length + 1}: `,
           options: ["Option A", "Option B", "Option C", "Option D"],
           answer: "Option A",
-          explanation: ""
+          explanation: "",
+          marks: 1
         }
       ]
     });
@@ -389,9 +346,6 @@ export function CourseContentBuilder({ courseId }: CourseContentBuilderProps) {
           <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
             <h3 className="font-bold text-slate-950">Edit Module Content</h3>
             <div className="flex gap-3">
-              <button type="button" onClick={generateQuiz} className="h-10 rounded-md border border-portal-line px-4 text-sm font-bold text-portal-blue">
-                Generate 5 Questions
-              </button>
               <button type="button" onClick={() => persistModule()} className="h-10 rounded-md bg-portal-blue px-4 text-sm font-bold text-white">
                 Update Module
               </button>
@@ -456,7 +410,7 @@ export function CourseContentBuilder({ courseId }: CourseContentBuilderProps) {
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-portal-line px-4 py-3">
                   <div>
                     <p className="font-bold text-slate-950">{draft.quiz || "Module Quiz"}</p>
-                    <p className="text-xs text-slate-500">Add as many questions as needed. Admin can generate, edit, or enter them manually.</p>
+                    <p className="text-xs text-slate-500">Add as many manual questions as needed and assign marks to each one.</p>
                   </div>
                   <button
                     type="button"
@@ -509,11 +463,21 @@ export function CourseContentBuilder({ courseId }: CourseContentBuilderProps) {
                           className="min-h-16 rounded-md border border-portal-line p-3 outline-none focus:border-portal-blue"
                           placeholder="Explanation or evaluation note"
                         />
+                        <label className="max-w-48">
+                          <span className="mb-1 block text-xs font-bold text-slate-600">Marks</span>
+                          <input
+                            type="number"
+                            min={1}
+                            value={question.marks}
+                            onChange={(event) => updateGeneratedQuestion(index, { ...question, marks: Math.max(1, Number(event.target.value) || 1) })}
+                            className="h-10 w-full rounded-md border border-portal-line px-3 outline-none focus:border-portal-blue"
+                          />
+                        </label>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <div className="p-4 text-sm font-semibold text-slate-500">Generate suggested questions or add questions manually.</div>
+                  <div className="p-4 text-sm font-semibold text-slate-500">Add the first manual question to this module.</div>
                 )}
               </div>
             </div>

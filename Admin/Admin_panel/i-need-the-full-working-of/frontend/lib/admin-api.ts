@@ -267,6 +267,10 @@ export type CourseCreatePayload = {
   language?: string;
   banner_url?: string | null;
   visibility?: string;
+  start_date?: string;
+  end_date?: string;
+  status?: string;
+  metadata?: Record<string, unknown>;
   modules?: Array<{
     title: string;
     position: number;
