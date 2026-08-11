@@ -366,6 +366,7 @@ export type CourseStudentProgress = {
   assessments_completed: number;
   total_assessments: number;
   attempts: number;
+  violations: number;
   average_score?: number | null;
   latest_score?: number | null;
   latest_activity?: string | null;

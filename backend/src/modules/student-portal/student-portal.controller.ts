@@ -87,7 +87,8 @@ export class StudentPortalController {
     const userAgent = Array.isArray(headers['user-agent']) ? headers['user-agent'][0] : headers['user-agent'];
     return this.service.submitModuleQuiz(id, user.sub, dto.module_index, dto.answers ?? {}, {
       startedAt: dto.started_at, tabSwitches: dto.tab_switches, browser: dto.browser,
-      operatingSystem: dto.operating_system, ip: resolveClientIp(headers, ip), userAgent: userAgent ?? '',
+      operatingSystem: dto.operating_system, violationReason: dto.violation_reason,
+      ip: resolveClientIp(headers, ip), userAgent: userAgent ?? '',
     });
   }
   @Get('announcements') announcements() { return this.service.announcements(); }

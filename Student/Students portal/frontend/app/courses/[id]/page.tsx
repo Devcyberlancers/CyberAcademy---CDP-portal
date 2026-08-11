@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, BookOpen, Bookmark, CalendarDays, ChevronLeft, ChevronRight, CheckCircle2, ClipboardCheck, Lock, Medal, Search, Trophy, X } from "lucide-react";
+import { ArrowLeft, BookOpen, Bookmark, CalendarDays, ChevronLeft, ChevronRight, CheckCircle2, ClipboardCheck, Lock, Medal, Mic, Search, Trophy, X } from "lucide-react";
 import { DashboardShell, type StudentSection } from "@/components/dashboard-shell";
 import { ExamReadinessDialog } from "@/components/exam-readiness-dialog";
 import { defaultStudentAccount, fetchStudentProfile, readStudentAccount, type StudentAccount } from "@/lib/student-account";
@@ -80,6 +80,7 @@ export default function StudentCoursePage({ params }: { params: Promise<{ id: st
   const [quizResult, setQuizResult] = useState<{
     score: number;
     passed: boolean;
+    violation?: string | null;
   } | null>(null);
   const [activeModuleIndex, setActiveModuleIndex] = useState(0);
   const [student, setStudent] = useState<StudentAccount>(defaultStudentAccount);
@@ -169,8 +170,8 @@ export default function StudentCoursePage({ params }: { params: Promise<{ id: st
     setActiveQuizIndex(moduleIndex);
   }
 
-  async function submitModuleQuiz(metadata?: { startedAt: string; tabSwitches: number; browser: string; operatingSystem: string }) {
-    if (activeQuizIndex === null) return;
+  async function submitModuleQuiz(metadata?: { startedAt: string; tabSwitches: number; browser: string; operatingSystem: string; violationReason?: string }) {
+    if (activeQuizIndex === null) return false;
     const token = window.localStorage.getItem("cyber-academy-auth-token");
     const response = await fetch(`${apiBaseUrl}/api/courses/${encodeURIComponent(courseId)}/modules/quiz-submit`, {
       method: "PUT",
@@ -185,18 +186,20 @@ export default function StudentCoursePage({ params }: { params: Promise<{ id: st
         tab_switches: metadata?.tabSwitches ?? 0,
         browser: metadata?.browser,
         operating_system: metadata?.operatingSystem,
+        violation_reason: metadata?.violationReason,
       }),
     });
     if (!response.ok) {
       setQuizError("Quiz submission failed. Please try again.");
-      return;
+      return false;
     }
-    setQuizResult((await response.json()) as { score: number; passed: boolean });
+    setQuizResult((await response.json()) as { score: number; passed: boolean; violation?: string | null });
     const refreshed = await fetch(`${apiBaseUrl}/api/courses/${encodeURIComponent(courseId)}/content`, {
       cache: "no-store",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (refreshed.ok) setData((await refreshed.json()) as CourseContent);
+    return true;
   }
 
   return withPortalShell(
@@ -220,7 +223,7 @@ export default function StudentCoursePage({ params }: { params: Promise<{ id: st
             }
             error={quizError}
             result={quizResult}
-            onSubmit={(metadata) => void submitModuleQuiz(metadata)}
+            onSubmit={submitModuleQuiz}
             onClose={() => setActiveQuizIndex(null)}
           />
         ) : null}
@@ -551,7 +554,7 @@ function CourseMessage({ message }: { message: string }) {
   );
 }
 
-function CourseQuiz({ module, answers, onChoose, error, result, onSubmit, onClose }: { module?: CourseModule; answers: Record<string, string>; onChoose: (index: number, value: string) => void; error: string; result: { score: number; passed: boolean } | null; onSubmit: (metadata: { startedAt: string; tabSwitches: number; browser: string; operatingSystem: string }) => void; onClose: () => void }) {
+function CourseQuiz({ module, answers, onChoose, error, result, onSubmit, onClose }: { module?: CourseModule; answers: Record<string, string>; onChoose: (index: number, value: string) => void; error: string; result: { score: number; passed: boolean; violation?: string | null } | null; onSubmit: (metadata: { startedAt: string; tabSwitches: number; browser: string; operatingSystem: string; violationReason?: string }) => Promise<boolean>; onClose: () => void }) {
   const [current, setCurrent] = useState(0);
   const [bookmarked, setBookmarked] = useState<Set<number>>(() => new Set());
   const [visited, setVisited] = useState<Set<number>>(() => new Set([0]));
@@ -559,16 +562,21 @@ function CourseQuiz({ module, answers, onChoose, error, result, onSubmit, onClos
   const [secondsLeft, setSecondsLeft] = useState(Math.max(1, module?.durationMinutes || 60) * 60);
   const startedAt = useRef(new Date().toISOString());
   const tabSwitches = useRef(0);
+  const submitting = useRef(false);
   const questions = module?.generatedQuestions ?? [];
   const question = questions[current];
-  const submit = () => {
+  const submit = async (violationReason?: string) => {
+    if(submitting.current||result)return;
+    submitting.current=true;
     const environment = detectClientEnvironment();
-    onSubmit({
+    const saved=await onSubmit({
       startedAt: startedAt.current,
       tabSwitches: tabSwitches.current,
       browser: environment.browser,
       operatingSystem: environment.os,
+      violationReason,
     });
+    if(!saved)submitting.current=false;
   };
   useEffect(() => {
     if (result) return;
@@ -576,40 +584,46 @@ function CourseQuiz({ module, answers, onChoose, error, result, onSubmit, onClos
     return () => window.clearInterval(timer);
   }, [result]);
   useEffect(() => {
-    if (secondsLeft === 0 && !result) submit();
+    if (secondsLeft === 0 && !result) void submit("TIME_EXPIRED");
   }, [secondsLeft, result]);
   useEffect(() => {
-    const screenWindow=window as Window & { __cyberAcademyScreenStream?: MediaStream };
+    const screenWindow=window as Window & { __cyberAcademyScreenStream?: MediaStream; __cyberAcademyMediaStream?: MediaStream };
     const stream=screenWindow.__cyberAcademyScreenStream;
     const track=stream?.getVideoTracks()[0];
+    const mediaTracks=screenWindow.__cyberAcademyMediaStream?.getTracks()??[];
     const sharingEnded=()=>{
       if(result)return;
       tabSwitches.current+=1;
-      setConfirm(true);
+      void submit("SCREEN_SHARE_STOPPED");
     };
     track?.addEventListener("ended",sharingEnded);
-    return()=>track?.removeEventListener("ended",sharingEnded);
+    const mediaEnded=()=>{if(!result)void submit("CAMERA_OR_MICROPHONE_STOPPED")};
+    mediaTracks.forEach((item)=>item.addEventListener("ended",mediaEnded));
+    return()=>{track?.removeEventListener("ended",sharingEnded);mediaTracks.forEach((item)=>item.removeEventListener("ended",mediaEnded))};
   },[result]);
   useEffect(() => {
     if(!result)return;
-    const screenWindow=window as Window & { __cyberAcademyScreenStream?: MediaStream };
+    const screenWindow=window as Window & { __cyberAcademyScreenStream?: MediaStream; __cyberAcademyMediaStream?: MediaStream };
     screenWindow.__cyberAcademyScreenStream?.getTracks().forEach((track)=>track.stop());
-    delete screenWindow.__cyberAcademyScreenStream;
+    screenWindow.__cyberAcademyMediaStream?.getTracks().forEach((track)=>track.stop());
+    delete screenWindow.__cyberAcademyScreenStream;delete screenWindow.__cyberAcademyMediaStream;
   },[result]);
   useEffect(() => {
     const block = (event: Event) => event.preventDefault();
     const keys = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && ["c", "v", "x", "a"].includes(event.key.toLowerCase())) event.preventDefault();
     };
-    const hidden = () => {
-      if (document.hidden && !result) tabSwitches.current += 1;
-    };
+    const hidden = () => {if(document.hidden&&!result){tabSwitches.current+=1;void submit("TAB_SWITCH")}};
+    const blurred = () => {if(!result){tabSwitches.current+=1;void submit("WINDOW_FOCUS_LOST")}};
+    const fullscreen = () => {if(!document.fullscreenElement&&!result)void submit("FULLSCREEN_EXIT")};
     document.addEventListener("copy", block);
     document.addEventListener("cut", block);
     document.addEventListener("paste", block);
     document.addEventListener("contextmenu", block);
     document.addEventListener("keydown", keys);
     document.addEventListener("visibilitychange", hidden);
+    window.addEventListener("blur",blurred);
+    document.addEventListener("fullscreenchange",fullscreen);
     return () => {
       document.removeEventListener("copy", block);
       document.removeEventListener("cut", block);
@@ -617,6 +631,8 @@ function CourseQuiz({ module, answers, onChoose, error, result, onSubmit, onClos
       document.removeEventListener("contextmenu", block);
       document.removeEventListener("keydown", keys);
       document.removeEventListener("visibilitychange", hidden);
+      window.removeEventListener("blur",blurred);
+      document.removeEventListener("fullscreenchange",fullscreen);
     };
   }, [result]);
   function go(index: number) {
@@ -636,9 +652,9 @@ function CourseQuiz({ module, answers, onChoose, error, result, onSubmit, onClos
     return (
       <section className="fixed inset-0 z-[90] grid place-items-center bg-[#f5f7fb] p-4">
         <div className="w-full max-w-xl rounded-xl bg-white p-8 text-center shadow">
-          <h2 className="text-2xl font-bold">{result.passed ? "Test passed" : "Test not passed"}</h2>
+          <h2 className="text-2xl font-bold">{result.violation ? "Test auto-submitted" : result.passed ? "Test passed" : "Test not passed"}</h2>
           <p className="mt-3">
-            Score: {result.score}%. {result.passed ? "The next module is now unlocked." : "You need 60% to unlock the next module."}
+            Score: {result.score}%. {result.violation ? `Violation recorded: ${result.violation.replaceAll("_"," ").toLowerCase()}.` : result.passed ? "The next module is now unlocked." : "The required passing score was not reached."}
           </p>
           <button onClick={onClose} className="mt-6 rounded bg-[#3155ff] px-5 py-3 font-bold text-white">
             Return to course
@@ -743,6 +759,7 @@ function CourseQuiz({ module, answers, onChoose, error, result, onSubmit, onClos
           </section>
         </main>
       </div>
+      <ProctorPreview />
       {confirm ? (
         <CourseEndConfirmation
           total={questions.length}
@@ -757,6 +774,25 @@ function CourseQuiz({ module, answers, onChoose, error, result, onSubmit, onClos
       ) : null}
     </section>
   );
+}
+function ProctorPreview(){
+ const videoRef=useRef<HTMLVideoElement>(null);
+ const [level,setLevel]=useState(0),[warning,setWarning]=useState("");
+ useEffect(()=>{
+  const streamWindow=window as Window&{__cyberAcademyMediaStream?:MediaStream};
+  const stream=streamWindow.__cyberAcademyMediaStream;
+  if(!stream)return;
+  if(videoRef.current){videoRef.current.srcObject=stream;void videoRef.current.play()}
+  const AudioContextClass=window.AudioContext;
+  if(!AudioContextClass||!stream.getAudioTracks().length)return;
+  const context=new AudioContextClass(),analyser=context.createAnalyser(),source=context.createMediaStreamSource(stream),samples=new Uint8Array(analyser.fftSize);
+  let frame=0,loudFrames=0;
+  source.connect(analyser);
+  const measure=()=>{analyser.getByteTimeDomainData(samples);let sum=0;for(const sample of samples){const value=(sample-128)/128;sum+=value*value}const next=Math.min(100,Math.round(Math.sqrt(sum/samples.length)*320));setLevel(next);loudFrames=next>45?loudFrames+1:Math.max(0,loudFrames-2);if(loudFrames>80){setWarning("High background audio detected. Remain silent and do not communicate with others.");loudFrames=0}frame=requestAnimationFrame(measure)};
+  frame=requestAnimationFrame(measure);
+  return()=>{cancelAnimationFrame(frame);source.disconnect();void context.close()};
+ },[]);
+ return <aside className="fixed bottom-5 right-5 z-[100] w-56 overflow-hidden rounded-lg border border-slate-700 bg-slate-950 text-white shadow-2xl"><div className="relative aspect-video bg-black"><video ref={videoRef} muted playsInline className="h-full w-full object-cover"/><span className="absolute left-2 top-2 rounded bg-red-600 px-2 py-1 text-[10px] font-bold">PROCTORING LIVE</span></div><div className="p-3"><div className="flex items-center gap-2 text-xs"><Mic size={14}/><span>Microphone</span><span className="ml-auto">{level}%</span></div><div className="mt-2 h-1.5 overflow-hidden rounded bg-white/20"><div className="h-full bg-emerald-400 transition-all" style={{width:`${level}%`}}/></div>{warning?<p className="mt-2 rounded bg-amber-500/20 p-2 text-[11px] leading-4 text-amber-200">{warning}</p>:null}</div></aside>;
 }
 function CourseEndConfirmation({ total, answered, visited, onCancel, onConfirm }: { total: number; answered: number; visited: number; onCancel: () => void; onConfirm: () => void }) {
   const [word, setWord] = useState("");

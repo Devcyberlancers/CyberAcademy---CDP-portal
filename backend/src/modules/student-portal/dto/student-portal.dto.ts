@@ -69,6 +69,10 @@ export class ModuleQuizSubmissionDto {
   @IsOptional()
   @IsString()
   operating_system?: string;
+
+  @IsOptional()
+  @IsString()
+  violation_reason?: string;
 }
 
 export class JobQueryDto {

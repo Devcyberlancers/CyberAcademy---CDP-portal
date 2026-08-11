@@ -105,6 +105,7 @@ export default function CoursesPage() {
       "Progress %": student.progress_percent,
       "Assessments Completed": `${student.assessments_completed}/${student.total_assessments}`,
       Attempts: student.attempts,
+      Violations: student.violations,
       "Average Score": student.average_score ?? "Not attempted",
       "Latest Score": student.latest_score ?? "Not attempted",
       "Latest Activity": student.latest_activity ? new Date(student.latest_activity).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) + " IST" : ""

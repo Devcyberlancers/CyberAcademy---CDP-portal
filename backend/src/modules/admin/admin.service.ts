@@ -136,7 +136,7 @@ export class AdminService {
     const totalModules = moduleDefinitions.length;
     const progressSnapshots = await this.prisma.admin_snapshots.findMany({ where: { key: { startsWith: `course-progress:${courseId}:` } } });
     const progressByEmail = new Map(progressSnapshots.map((snapshot) => {
-      try { return [snapshot.key.slice(`course-progress:${courseId}:`.length), JSON.parse(snapshot.payload) as { videos?: number[]; quizzes?: Record<string, { passed?: boolean; score?: number; submitted_at?: string; attempts?: Array<{ score?: number; endedAt?: string; startedAt?: string }> }> }]; }
+      try { return [snapshot.key.slice(`course-progress:${courseId}:`.length), JSON.parse(snapshot.payload) as { videos?: number[]; quizzes?: Record<string, { passed?: boolean; score?: number; submitted_at?: string; attempts?: Array<{ score?: number; endedAt?: string; startedAt?: string; status?: string; violations?: number; violationReason?: string }> }> }]; }
       catch { return [snapshot.key.slice(`course-progress:${courseId}:`.length), {}]; }
     }));
     const academicByEmail = new Map(academics.map((student) => [student.users.email.toLowerCase(), student]));
@@ -176,6 +176,8 @@ export class AdminService {
         assessments_completed: completedModules || completedAssessments,
         total_assessments: totalModules || totalAssessments,
         attempts: studentAttempts.length + moduleAttempts.length,
+        violations: completed.reduce((sum, attempt) => sum + (attempt.violations ?? 0), 0)
+          + moduleAttempts.reduce((sum, attempt) => sum + (Number(attempt.violations) || 0), 0),
         average_score: scoredAttempts.length
           ? Math.round(scoredAttempts.reduce((sum, attempt) => sum + attempt.score, 0) / scoredAttempts.length)
           : null,

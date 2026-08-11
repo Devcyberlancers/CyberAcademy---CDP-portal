@@ -393,7 +393,7 @@ export class StudentPortalService {
 
   async submitModuleQuiz(
     courseId: number, email: string, moduleIndex: number, answers: Record<string, string>,
-    metadata: { startedAt?: string; tabSwitches?: number; browser?: string; operatingSystem?: string; ip?: string; userAgent?: string } = {},
+    metadata: { startedAt?: string; tabSwitches?: number; browser?: string; operatingSystem?: string; violationReason?: string; ip?: string; userAgent?: string } = {},
   ) {
     const modules = await this.snapshot(`course-editor-modules-${courseId}-v2`, []) as Array<Record<string, any>>;
     const module = modules[moduleIndex];
@@ -406,9 +406,10 @@ export class StudentPortalService {
     }, 0);
     const score = totalMarks > 0 ? Math.round((earnedMarks / totalMarks) * 100) : 0;
     const requiredScore = Math.max(1, Math.min(100, Number(module.passPercent) || 60));
-    const passed = score >= requiredScore;
+    const violationReason = metadata.violationReason?.trim() || '';
+    const passed = !violationReason && score >= requiredScore;
     const key = `course-progress:${courseId}:${email.toLowerCase()}`;
-    type QuizAttempt = { attemptNumber: number; startedAt: string; endedAt: string; durationSeconds: number; score: number; passed: boolean; tabSwitches: number; browser: string; operatingSystem: string; ipAddress: string };
+    type QuizAttempt = { attemptNumber: number; status?: 'completed' | 'auto_submitted'; startedAt: string; endedAt: string; durationSeconds: number; score: number; passed: boolean; tabSwitches: number; browser: string; operatingSystem: string; ipAddress: string; violations?: number; violationReason?: string };
     type QuizProgress = { score: number; passed: boolean; submitted_at: string; attempts?: QuizAttempt[] };
     const current = await this.snapshot(key, {}) as { videos?: number[]; quizzes?: Record<string, QuizProgress> };
     const previous = current.quizzes?.[String(moduleIndex)];
@@ -420,11 +421,11 @@ export class StudentPortalService {
     const startedAt = Number.isNaN(parsedStart.getTime()) || parsedStart > endedAt ? endedAt : parsedStart;
     const agent = metadata.userAgent || '';
     const detectedBrowser = agent.includes('Edg/') ? 'Microsoft Edge' : agent.includes('Chrome/') ? 'Chrome' : agent.includes('Firefox/') ? 'Firefox' : agent.includes('Safari/') ? 'Safari' : 'Browser';
-    const attempt: QuizAttempt = { attemptNumber: attempts.length + 1, startedAt: startedAt.toISOString(), endedAt: endedAt.toISOString(), durationSeconds: Math.max(0, Math.floor((endedAt.getTime() - startedAt.getTime()) / 1000)), score, passed, tabSwitches: Math.max(0, Number(metadata.tabSwitches) || 0), browser: metadata.browser?.trim() || detectedBrowser, operatingSystem: metadata.operatingSystem?.trim() || 'Unknown', ipAddress: metadata.ip?.trim() || 'Unavailable' };
+    const attempt: QuizAttempt = { attemptNumber: attempts.length + 1, status: violationReason ? 'auto_submitted' : 'completed', startedAt: startedAt.toISOString(), endedAt: endedAt.toISOString(), durationSeconds: Math.max(0, Math.floor((endedAt.getTime() - startedAt.getTime()) / 1000)), score, passed, tabSwitches: Math.max(0, Number(metadata.tabSwitches) || 0), browser: metadata.browser?.trim() || detectedBrowser, operatingSystem: metadata.operatingSystem?.trim() || 'Unknown', ipAddress: metadata.ip?.trim() || 'Unavailable', violations: violationReason ? 1 : 0, violationReason: violationReason || undefined };
     attempts.push(attempt);
-    const quizzes = { ...(current.quizzes ?? {}), [String(moduleIndex)]: { score, passed, submitted_at: endedAt.toISOString(), attempts } };
+    const quizzes = { ...(current.quizzes ?? {}), [String(moduleIndex)]: { score: Math.max(Number(previous?.score) || 0, score), passed: Boolean(previous?.passed) || passed, submitted_at: endedAt.toISOString(), attempts } };
     await this.prisma.admin_snapshots.upsert({ where: { key }, create: { key, payload: JSON.stringify({ videos: current.videos ?? [], quizzes }), updated_by: email, updated_at: endedAt }, update: { payload: JSON.stringify({ videos: current.videos ?? [], quizzes }), updated_by: email, updated_at: endedAt } });
-    return { submitted: true, score, earnedMarks, totalMarks, passed, required_score: requiredScore, attempt, attemptsUsed: attempts.length, maxAttempts };
+    return { submitted: true, score, earnedMarks, totalMarks, passed, violation: violationReason || null, required_score: requiredScore, attempt, attemptsUsed: attempts.length, maxAttempts };
   }
 
   async courseContent(courseId: number, email: string) {
