@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
+import { STUDENT_EMAIL_DOMAIN } from "@/lib/portal-config";
 import { buildStudentAccount, fetchStudentProfile, saveStudentAccount } from "@/lib/student-account";
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
@@ -12,11 +13,15 @@ const authTokenStorageKey = "cyber-academy-auth-token";
 
 const getLoginSchema = () =>
   z.object({
-    email: z.string().email(),
+    email: z.string().email().refine((value) => value.trim().toLowerCase().endsWith(`@${STUDENT_EMAIL_DOMAIN}`), {
+      message: `Use your official @${STUDENT_EMAIL_DOMAIN} email`
+    }),
     password: z.string().optional()
   });
 
-const getEmailSchema = () => z.string().email();
+const getEmailSchema = () => z.string().email().refine((value) => value.trim().toLowerCase().endsWith(`@${STUDENT_EMAIL_DOMAIN}`), {
+  message: `Use your official @${STUDENT_EMAIL_DOMAIN} email`
+});
 
 type LoginValues = {
   email: string;
@@ -65,7 +70,18 @@ export function LoginForm() {
       setLoginNotice("Wrong username or password.");
       return;
     }
-    const token = (await response.json()) as { access_token?: string; role?: string };
+    const token = (await response.json()) as {
+      access_token?: string;
+      role?: string;
+      email?: string;
+      password_change_required?: boolean;
+    };
+    if (token.password_change_required && token.role === "student") {
+      window.localStorage.removeItem(authTokenStorageKey);
+      const email = (token.email || values.email).trim().toLowerCase();
+      window.location.href = `/forgot-password?required=1&email=${encodeURIComponent(email)}`;
+      return;
+    }
     if (!token.access_token || !token.role) { setLoginNotice("Wrong username or password."); return; }
     window.localStorage.setItem(authTokenStorageKey, token.access_token);
     if (token.role === "admin") {
@@ -160,14 +176,4 @@ export function LoginForm() {
       </Link>
     </form>
   );
-}
-
-async function readErrorMessage(response: Response) {
-  try {
-    const body = await response.json();
-    if (typeof body?.detail === "string") return body.detail;
-  } catch {
-    return response.text();
-  }
-  return response.text();
 }

@@ -15,7 +15,8 @@ import {
   isStudentEmail
 } from "@/lib/student-account";
 
-const tabs = ["Edit Profile", "Academic Information", "Additional Information", "Resume", "Rewards", "Mentor Information", "Account Settings"] as const;
+const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+const tabs = ["Edit Profile", "Academic Information", "Additional Information", "Resume", "Rewards", "Mentor Information"] as const;
 type ProfileTab = (typeof tabs)[number];
 
 export function ProfilePortal() {
@@ -60,7 +61,7 @@ export function ProfilePortal() {
 
 function ProfileView({ student, onStudentChange }: { student: StudentAccount; onStudentChange: (student: StudentAccount) => Promise<void> }) {
   const [draft, setDraft] = useState<StudentAccount>(student);
-  const [activeTab, setActiveTab] = useState<ProfileTab>("Academic Information");
+  const [activeTab, setActiveTab] = useState<ProfileTab>("Edit Profile");
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -68,6 +69,10 @@ function ProfileView({ student, onStudentChange }: { student: StudentAccount; on
   const [photoSource, setPhotoSource] = useState("");
   const [photoCrop, setPhotoCrop] = useState({ x: 0, y: 0, size: 0.72 });
   const [isEditingPhoto, setIsEditingPhoto] = useState(false);
+  const [showPasswordChange, setShowPasswordChange] = useState(false);
+  const [passwordStatus, setPasswordStatus] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [isSendingPasswordLink, setIsSendingPasswordLink] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -190,6 +195,33 @@ function ProfileView({ student, onStudentChange }: { student: StudentAccount; on
     }
   }
 
+  async function requestPasswordChange() {
+    setPasswordStatus("");
+    setPasswordError("");
+    const email = student.email.trim().toLowerCase();
+    if (!isStudentEmail(email)) {
+      setPasswordError("A valid @cyberlancers.in email is required.");
+      return;
+    }
+    setIsSendingPasswordLink(true);
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/auth/password-reset/request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email })
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { message?: string; detail?: string } | null;
+        throw new Error(body?.message || body?.detail || "Password change email could not be sent.");
+      }
+      setPasswordStatus("A secure change-password link was sent to your Cyberlancers email.");
+    } catch (error) {
+      setPasswordError(error instanceof Error ? error.message : "Password change email could not be sent.");
+    } finally {
+      setIsSendingPasswordLink(false);
+    }
+  }
+
   const higherSecondary = draft.education?.find((item) => item.level === "PUC" || item.level === "Diploma");
 
   return (
@@ -265,6 +297,7 @@ function ProfileView({ student, onStudentChange }: { student: StudentAccount; on
             <Card className="mt-6 rounded-none border-0 bg-white p-8 shadow-sm">
               <h2 className="mb-6 text-xl font-bold">{activeTab}</h2>
               {activeTab === "Edit Profile" && (
+                <div className="grid gap-7">
                 <FormGrid>
                   <TextField label="Full Name *" value={draft.fullName} onChange={(value) => setField("fullName", value)} />
                   <TextField label="Cyberlancers ID" value={draft.cyberlancersId} onChange={(value) => setField("cyberlancersId", value)} />
@@ -277,6 +310,24 @@ function ProfileView({ student, onStudentChange }: { student: StudentAccount; on
                   <TextField label="College *" value={draft.college} onChange={(value) => setField("college", value)} />
                   <TextField label="Department *" value={draft.department} onChange={(value) => setField("department", value)} />
                 </FormGrid>
+                <section className="rounded-xl border border-[#e1e5ee] bg-[#f8faff] p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div><h3 className="font-bold text-[#07142f]">Password and security</h3><p className="mt-1 text-sm text-[#657083]">Request a secure link to create a new password.</p></div>
+                    <button type="button" onClick={() => { setShowPasswordChange((value) => !value); setPasswordStatus(""); setPasswordError(""); }} className="rounded-md border border-[#3155ff] bg-white px-4 py-2.5 text-sm font-semibold text-[#3155ff]">
+                      {showPasswordChange ? "Cancel" : "Change Password"}
+                    </button>
+                  </div>
+                  {showPasswordChange ? <div className="mt-5 border-t border-[#e1e5ee] pt-5">
+                    <ReadOnlyField label="Cyberlancers Email" value={student.email} />
+                    <p className="mt-3 text-xs leading-5 text-[#657083]">The email contains a time-limited link. Your current password remains active until the new password is successfully saved.</p>
+                    {passwordStatus ? <p className="mt-3 rounded-md bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">{passwordStatus}</p> : null}
+                    {passwordError ? <p className="mt-3 rounded-md bg-red-50 p-3 text-sm font-semibold text-red-600">{passwordError}</p> : null}
+                    <button type="button" disabled={isSendingPasswordLink} onClick={() => void requestPasswordChange()} className="mt-4 rounded-md bg-[#3155ff] px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
+                      {isSendingPasswordLink ? "Sending secure link..." : "Send Change Password Link"}
+                    </button>
+                  </div> : null}
+                </section>
+                </div>
               )}
 
               {activeTab === "Academic Information" && (
@@ -338,13 +389,6 @@ function ProfileView({ student, onStudentChange }: { student: StudentAccount; on
               {activeTab === "Mentor Information" && (
                 <FormGrid>
                   <TextField label="Mentor Name" value={draft.mentorName} onChange={(value) => setField("mentorName", value)} />
-                </FormGrid>
-              )}
-
-              {activeTab === "Account Settings" && (
-                <FormGrid>
-                  <TextField label="Email *" value={draft.email} onChange={(value) => setField("email", value)} />
-                  <ReadOnlyField label="Approval Status" value={approvalLabel(draft.status)} />
                 </FormGrid>
               )}
 

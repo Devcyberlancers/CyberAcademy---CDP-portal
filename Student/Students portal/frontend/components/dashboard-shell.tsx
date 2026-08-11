@@ -225,22 +225,32 @@ export function DashboardShell({
               </button>
 
               {isAccountOpen && (
-                <div className="absolute right-0 top-12 z-50 w-44 overflow-hidden rounded-md border border-[#e4e8f0] bg-white py-2 shadow-[0_14px_40px_rgba(17,24,74,.16)]">
-                  <Link href="/profile" className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-[#07142f] transition hover:bg-[#f6f8fc]">
-                    <User size={16} />
-                    Profile
+                <div className="absolute right-0 top-14 z-50 w-[270px] overflow-hidden rounded-xl border border-[#e4e8f0] bg-white p-2 shadow-[0_18px_50px_rgba(17,24,74,.18)]">
+                  <div className="mb-2 flex items-center gap-3 rounded-lg bg-[#f6f8ff] px-3 py-3">
+                    <div className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-[#ebf4ff] shadow-sm">
+                      {student.photoDataUrl ? <Image src={student.photoDataUrl} alt="Student profile photo" fill unoptimized className="object-cover" /> : <UserRound size={23} className="text-[#0e9fb5]" />}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-bold text-[#07142f]">{student.fullName || student.firstName || "Student"}</p>
+                      <p className="mt-0.5 truncate text-xs text-[#687182]">{student.email}</p>
+                    </div>
+                  </div>
+                  <Link href="/profile" className="group flex items-center gap-3 rounded-lg px-3 py-3 transition hover:bg-[#f6f8fc]">
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#eef2ff] text-[#3155ff]"><User size={17} /></span>
+                    <span className="min-w-0"><b className="block text-sm text-[#07142f]">Profile</b><small className="mt-0.5 block text-xs text-[#7a8292]">View and update your details</small></span>
                   </Link>
-                  <Link href="/resume-intelligence" className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-[#07142f] transition hover:bg-[#f6f8fc]">
-                    <FileText size={16} />
-                    Resume Intelligence
+                  <Link href="/resume-intelligence" className="group flex items-center gap-3 rounded-lg px-3 py-3 transition hover:bg-[#f6f8fc]">
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#eef8f9] text-[#0e8b9c]"><FileText size={17} /></span>
+                    <span className="min-w-0"><b className="block text-sm text-[#07142f]">Resume Intelligence</b><small className="mt-0.5 block text-xs text-[#7a8292]">Review your resume analysis</small></span>
                   </Link>
+                  <div className="my-2 h-px bg-[#edf0f5]" />
                   <button
                     type="button"
                     onClick={logout}
-                    className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm font-semibold text-[#c03434] transition hover:bg-[#fff4f4]"
+                    className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition hover:bg-[#fff4f4]"
                   >
-                    <LogOut size={16} />
-                    Logout
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-red-50 text-[#c03434]"><LogOut size={17} /></span>
+                    <span><b className="block text-sm text-[#c03434]">Logout</b><small className="mt-0.5 block text-xs text-[#9a6870]">Sign out of your account</small></span>
                   </button>
                 </div>
               )}

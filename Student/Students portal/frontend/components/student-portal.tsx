@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Bookmark, Calendar, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ClipboardCheck, Filter, IdCard, Loader2, MapPin, RefreshCw, Search, ShieldCheck, Sparkles, TerminalSquare, UserRound } from "lucide-react";
 import { DashboardShell, type StudentSection } from "@/components/dashboard-shell";
+import { ExamReadinessDialog } from "@/components/exam-readiness-dialog";
 import { Card } from "@/components/ui";
 import {
   defaultStudentAccount,
@@ -1486,6 +1487,7 @@ function AssessmentsView() {
   const [assessmentSort, setAssessmentSort] = useState<"title" | "duration" | "attempts">("title");
   const [assessmentFilter, setAssessmentFilter] = useState<"all" | "available" | "completed" | "exhausted">("all");
   const [confirmSubmit, setConfirmSubmit] = useState(false);
+  const [readinessAssessment, setReadinessAssessment] = useState<SecureAssessmentSummary | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -1748,7 +1750,7 @@ function AssessmentsView() {
                   <button
                     type="button"
                     disabled={!acceptedRules || isStarting || !assessment.canStart}
-                    onClick={() => startAssessment(assessment)}
+                    onClick={() => setReadinessAssessment(assessment)}
                     className="mt-6 inline-flex w-full items-center justify-center rounded-lg bg-[#3155ff] px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-[#aab7ff]"
                   >
                     {isStarting ? <Loader2 size={18} className="animate-spin" /> : assessmentButtonLabel(assessment)}
@@ -1767,6 +1769,7 @@ function AssessmentsView() {
           </div>
         </aside>
       </div>
+      {readinessAssessment ? <ExamReadinessDialog title={readinessAssessment.title} onClose={() => setReadinessAssessment(null)} onProceed={() => startAssessment(readinessAssessment)} /> : null}
     </div>
   );
 }
@@ -1892,6 +1895,7 @@ function ComingSoonFeature({ section }: { section: StudentSection }) {
 
 function JobDashboardView({ headerSearch, student, onSectionChange }: { headerSearch: string; student: StudentAccount; onSectionChange: (section: StudentSection) => void }) {
   const [jobs, setJobs] = useState<ExternalJob[]>([]);
+  const [availableJobCount, setAvailableJobCount] = useState(0);
   const [applicationStatuses, setApplicationStatuses] = useState<Record<string, JobApplicationRecord>>({});
   const [statusFilter, setStatusFilter] = useState<"all" | JobApplicationStatus>("all");
   const [showAllRecent, setShowAllRecent] = useState(false);
@@ -1937,12 +1941,24 @@ function JobDashboardView({ headerSearch, student, onSectionChange }: { headerSe
       const url = new URL("/api/jobs/entry-level", apiBaseUrl);
       url.searchParams.set("limit", "500");
       url.searchParams.set("_", String(Date.now()));
-      const response = await fetch(url.toString(), { cache: "no-store" });
+      const countUrl = new URL("/api/jobs/entry-level/count", apiBaseUrl);
+      countUrl.searchParams.set("_", String(Date.now()));
+      const [response, countResponse] = await Promise.all([
+        fetch(url.toString(), { cache: "no-store" }),
+        fetch(countUrl.toString(), { cache: "no-store" }),
+      ]);
       if (!response.ok) {
         const message = await response.text();
         throw new Error(message || `Backend returned ${response.status}`);
       }
-      setJobs(onlyCybersecurityJobs(await response.json()).sort(compareJobsNewestFirst));
+      const loadedJobs = onlyCybersecurityJobs(await response.json()).sort(compareJobsNewestFirst);
+      setJobs(loadedJobs);
+      if (countResponse.ok) {
+        const countPayload = await countResponse.json() as { count?: number };
+        setAvailableJobCount(Number.isFinite(countPayload.count) ? Number(countPayload.count) : loadedJobs.length);
+      } else {
+        setAvailableJobCount(loadedJobs.length);
+      }
       setApplicationStatuses(await syncJobApplicationsFromDatabase());
       setAppliedHistory(await loadAppliedJobs());
     } catch (error) {
@@ -1982,7 +1998,7 @@ function JobDashboardView({ headerSearch, student, onSectionChange }: { headerSe
         <span className="absolute -bottom-7 right-12 text-[84px] font-medium text-white/15">Hello {student.firstName || "Student"}</span>
       </section>
       <div className="relative z-10 -mt-8 mb-7 grid gap-4 lg:grid-cols-5 lg:px-7">
-        <JobSummaryMetric value={jobs.length} label="Available jobs" tone="blue" />
+        <JobSummaryMetric value={availableJobCount} label="Available jobs" tone="blue" />
         <JobSummaryMetric value={appliedCount} label="Applied" tone="indigo" />
         <JobSummaryMetric value={appliedHistory.length} label="Confirmed applications" tone="green" />
         <JobSummaryMetric value={waitingCount} label="Waiting" tone="orange" />
@@ -2062,7 +2078,7 @@ function JobDashboardView({ headerSearch, student, onSectionChange }: { headerSe
         <aside className="hidden">
           <h2 className="mb-5 text-xl font-bold text-black">Summary</h2>
           <div className="space-y-4">
-            <SummaryRow label="No. of Jobs" value={filteredJobs.length} />
+            <SummaryRow label="No. of Jobs" value={availableJobCount} />
             <SummaryRow label="Applied" value={appliedCount} />
             <SummaryRow label="Waiting" value={waitingCount} />
             <SummaryRow label="Not Applied" value={notAppliedCount} />
@@ -2103,6 +2119,7 @@ function JobsView({ headerSearch }: { headerSearch: string }) {
   const [query, setQuery] = useState("");
   const [location, setLocation] = useState("");
   const [jobs, setJobs] = useState<ExternalJob[]>([]);
+  const [availableJobCount, setAvailableJobCount] = useState(0);
   const [applicationStatuses, setApplicationStatuses] = useState<Record<string, JobApplicationRecord>>({});
   const [statusFilter, setStatusFilter] = useState<"all" | JobApplicationStatus>("all");
   const [sortBy, setSortBy] = useState<"match" | "newest" | "title" | "salary">("newest");
@@ -2174,12 +2191,25 @@ function JobsView({ headerSearch }: { headerSearch: string }) {
       if (locationOverride) url.searchParams.set("location", locationOverride);
       url.searchParams.set("limit", "500");
       url.searchParams.set("_", String(Date.now()));
-      const response = await fetch(url.toString(), { cache: "no-store" });
+      const countUrl = new URL("/api/jobs/entry-level/count", apiBaseUrl);
+      if (locationOverride) countUrl.searchParams.set("location", locationOverride);
+      countUrl.searchParams.set("_", String(Date.now()));
+      const [response, countResponse] = await Promise.all([
+        fetch(url.toString(), { cache: "no-store" }),
+        fetch(countUrl.toString(), { cache: "no-store" }),
+      ]);
       if (!response.ok) {
         const message = await response.text();
         throw new Error(message || `Backend returned ${response.status}`);
       }
-      setJobs(onlyCybersecurityJobs(await response.json()).sort(compareJobsNewestFirst));
+      const loadedJobs = onlyCybersecurityJobs(await response.json()).sort(compareJobsNewestFirst);
+      setJobs(loadedJobs);
+      if (countResponse.ok) {
+        const countPayload = await countResponse.json() as { count?: number };
+        setAvailableJobCount(Number.isFinite(countPayload.count) ? Number(countPayload.count) : loadedJobs.length);
+      } else {
+        setAvailableJobCount(loadedJobs.length);
+      }
       setApplicationStatuses(await syncJobApplicationsFromDatabase());
       setAppliedHistory(await loadAppliedJobs());
     } catch (error) {
@@ -2315,7 +2345,7 @@ function JobsView({ headerSearch }: { headerSearch: string }) {
         <aside className="xl:sticky xl:top-24 xl:self-start">
           <h2 className="mb-5 text-xl font-semibold text-black">Summary</h2>
           <div className="space-y-4">
-            <SummaryRow label="No. of Jobs" value={jobs.length} />
+            <SummaryRow label="No. of Jobs" value={availableJobCount} />
             <SummaryRow label="Placed" value={0} />
             <SummaryRow label="Waiting" value={waitingCount} />
           </div>
@@ -2478,7 +2508,7 @@ function portalJobDedupeKey(job: ExternalJob) {
   const company = normalizeDedupeText(job.company);
   const location = normalizeDedupeText(job.location);
   const applyUrl = normalizeApplyUrl(job.apply_url);
-  return title && company ? `${title}|${company}|${location}` : applyUrl || `${job.id}`;
+  return applyUrl || (title && company ? `${title}|${company}|${location}` : `${job.id}`);
 }
 
 function normalizeDedupeText(value: string) {
@@ -2489,7 +2519,6 @@ function normalizeApplyUrl(value: string) {
   try {
     const url = new URL(value);
     url.hash = "";
-    url.search = "";
     return url.toString().toLowerCase();
   } catch {
     return normalizeDedupeText(value);

@@ -3,6 +3,7 @@ import {
 } from '@nestjs/common';
 import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { resolveClientIp, type RequestHeaders } from '../../common/http/client-ip';
 import {
   ApplicationStatusDto, ModuleQuizSubmissionDto, ModuleVideoCompletionDto, StudentProfileDto,
 } from './dto/student-portal.dto';
@@ -29,6 +30,10 @@ export class StudentPortalController {
   @Get('jobs/locations') locations(@Query('limit') limit?: string) { return this.service.locations(limit ? Number(limit) : undefined); }
   @Get('jobs/entry-level') entry(@Query('location') location?: string, @Query('limit') limit?: string) {
     return this.service.jobs(limit ? Number(limit) : undefined, location ? { location: { contains: location } } : {});
+  }
+  @Get('jobs/entry-level/count') async entryCount(@Query('location') location?: string) {
+    const count = await this.service.availableJobsCount(location ? { location: { contains: location } } : {});
+    return { count };
   }
   @Post('jobs/:id/application-status') status(@Param('id', ParseIntPipe) id: number, @Body() dto: ApplicationStatusDto) {
     return this.service.setApplicationStatus(id, dto);
@@ -76,12 +81,13 @@ export class StudentPortalController {
   @UseGuards(JwtAuthGuard)
   submitModuleQuiz(
     @Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: ModuleQuizSubmissionDto, @Ip() ip: string, @Headers('user-agent') userAgent = '',
+    @Body() dto: ModuleQuizSubmissionDto, @Ip() ip: string, @Headers() headers: RequestHeaders,
   ) {
     this.requireStudent(user);
+    const userAgent = Array.isArray(headers['user-agent']) ? headers['user-agent'][0] : headers['user-agent'];
     return this.service.submitModuleQuiz(id, user.sub, dto.module_index, dto.answers ?? {}, {
       startedAt: dto.started_at, tabSwitches: dto.tab_switches, browser: dto.browser,
-      operatingSystem: dto.operating_system, ip, userAgent,
+      operatingSystem: dto.operating_system, ip: resolveClientIp(headers, ip), userAgent: userAgent ?? '',
     });
   }
   @Get('announcements') announcements() { return this.service.announcements(); }

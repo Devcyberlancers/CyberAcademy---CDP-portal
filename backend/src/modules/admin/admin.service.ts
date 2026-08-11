@@ -717,7 +717,15 @@ export class AdminService {
     const recipient = (profile.personal_email || profile.email).trim().toLowerCase();
     const portal = `${this.config.get<string>('studentFrontendUrl')?.replace(/\/+$/, '')}/student/login`;
     await this.mail.sendStudentCredentials(recipient, profile.full_name || profile.first_name || profile.email, portal, profile.email, password);
-    await this.prisma.users.update({ where: { id: user.id }, data: { hashed_password: await bcrypt.hash(password, 12) } });
+    const now = new Date();
+    await this.prisma.$transaction([
+      this.prisma.users.update({ where: { id: user.id }, data: { hashed_password: await bcrypt.hash(password, 12) } }),
+      this.prisma.student_password_security.upsert({
+        where: { user_id: user.id },
+        create: { user_id: user.id, must_change_password: true, updated_at: now },
+        update: { must_change_password: true, password_changed_at: null, updated_at: now },
+      }),
+    ]);
     return { reset: true, student_id: id, recipient, message: 'Temporary password emailed and activated successfully.' };
   }
 
@@ -751,6 +759,9 @@ export class AdminService {
           },
         });
         const user = await tx.users.create({ data: { email, hashed_password: hash, role: users_role.student, is_active: true, created_at: new Date() } });
+        await tx.student_password_security.create({
+          data: { user_id: user.id, must_change_password: true, updated_at: new Date() },
+        });
         const departmentName = dto.branch?.trim() || 'General';
         let department = await tx.departments.findUnique({ where: { name: departmentName } });
         if (!department) department = await tx.departments.create({ data: { name: departmentName, code: (departmentName.toUpperCase().replace(/[^A-Z0-9]/g, '') || 'GENERAL').slice(0, 20) } });
@@ -800,6 +811,11 @@ export class AdminService {
       this.prisma.users.update({
         where: { id: user.id },
         data: { email: loginEmail, hashed_password: await bcrypt.hash(replacementPassword, 12), role: users_role.student, is_active: true },
+      }),
+      this.prisma.student_password_security.upsert({
+        where: { user_id: user.id },
+        create: { user_id: user.id, must_change_password: true, updated_at: new Date() },
+        update: { must_change_password: true, password_changed_at: null, updated_at: new Date() },
       }),
       this.prisma.portal_access_settings.updateMany({ where: { scope_key: oldEmail }, data: { scope_key: loginEmail } }),
     ]);

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { STUDENT_EMAIL_DOMAIN } from "@/lib/portal-config";
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
@@ -11,6 +11,14 @@ export default function ForgotPasswordPage() {
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [isRequired, setIsRequired] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const requestedEmail = (params.get("email") || "").trim().toLowerCase();
+    if (requestedEmail) setEmail(requestedEmail);
+    setIsRequired(params.get("required") === "1");
+  }, []);
 
   async function sendResetLink(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -34,7 +42,7 @@ export default function ForgotPasswordPage() {
         const message = await readErrorMessage(response);
         throw new Error(message || "Password reset email failed.");
       }
-      setStatus("Password reset link sent. Check your email inbox.");
+      setStatus("Change-password link sent. Check your email inbox.");
     } catch (sendError) {
       setError(sendError instanceof Error ? sendError.message : "Password reset email failed.");
     } finally {
@@ -45,8 +53,12 @@ export default function ForgotPasswordPage() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-[#f6f8fc] px-4">
       <form onSubmit={sendResetLink} className="w-full max-w-md rounded-xl bg-white p-7 shadow-sm">
-        <h1 className="text-2xl font-bold text-[#07142f]">Reset Password</h1>
-        <p className="mt-2 text-sm leading-6 text-[#6b7280]">Enter your Cyber Lancers email. We will send a secure reset link using the configured SMTP account.</p>
+        <h1 className="text-2xl font-bold text-[#07142f]">{isRequired ? "Change Your Password" : "Reset Password"}</h1>
+        <p className="mt-2 text-sm leading-6 text-[#6b7280]">
+          {isRequired
+            ? "You are using a temporary password. Enter your Cyberlancers email to receive the mandatory change-password link."
+            : "Enter your Cyberlancers email. We will send a secure change-password link."}
+        </p>
         <label className="mt-6 block text-sm font-semibold text-black">
           Email
           <input
@@ -59,7 +71,7 @@ export default function ForgotPasswordPage() {
         {status && <p className="mt-4 rounded-md bg-[#e6f8e9] p-3 text-sm font-semibold text-[#1e8d35]">{status}</p>}
         {error && <p className="mt-4 rounded-md bg-red-50 p-3 text-sm font-semibold text-red-600">{error}</p>}
         <button type="submit" disabled={isSending} className="mt-5 h-11 w-full rounded-md bg-[#3155ff] text-sm font-semibold text-white disabled:opacity-60">
-          {isSending ? "Sending..." : "Send Reset Link"}
+          {isSending ? "Sending..." : "Send Change Password Link"}
         </button>
         <Link href="/" className="mt-4 block text-center text-sm font-semibold text-[#3155ff]">Back to login</Link>
       </form>
@@ -70,9 +82,11 @@ export default function ForgotPasswordPage() {
 async function readErrorMessage(response: Response) {
   try {
     const body = await response.json();
+    if (typeof body?.message === "string") return body.message;
+    if (Array.isArray(body?.message)) return body.message.join(". ");
     if (typeof body?.detail === "string") return body.detail;
   } catch {
-    return response.text();
+    return "Password reset email failed.";
   }
-  return response.text();
+  return "Password reset email failed.";
 }

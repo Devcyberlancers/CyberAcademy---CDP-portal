@@ -6,6 +6,7 @@ export interface AuthenticatedUser {
   name?: string;
   student_id?: number | null;
   profile_id?: number | null;
+  iat?: number;
 }
 
 export const CurrentUser = createParamDecorator(

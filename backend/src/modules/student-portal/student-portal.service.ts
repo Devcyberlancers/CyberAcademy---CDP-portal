@@ -48,24 +48,37 @@ export class StudentPortalService {
     return this.prisma.companies.findMany({ orderBy: { name: 'asc' } });
   }
 
+  private availableJobsWhere(extra: Prisma.jobsWhereInput = {}): Prisma.jobsWhereInput {
+    return {
+      AND: [
+        { is_entry_level: true },
+        extra,
+        {
+          OR: [
+            { title: { contains: 'cyber' } },
+            { title: { contains: 'security' } },
+            { title: { contains: 'SOC' } },
+            { title: { contains: 'SIEM' } },
+            { title: { contains: 'VAPT' } },
+            { description: { contains: 'cybersecurity' } },
+          ],
+        },
+      ],
+    };
+  }
+
+  async availableJobsCount(extra: Prisma.jobsWhereInput = {}) {
+    const rows = await this.prisma.jobs.findMany({
+      where: this.availableJobsWhere(extra),
+      distinct: ['apply_url'],
+      select: { apply_url: true },
+    });
+    return rows.length;
+  }
+
   async jobs(limit?: number, extra: Prisma.jobsWhereInput = {}) {
     const rows = await this.prisma.jobs.findMany({
-      where: {
-        AND: [
-          { is_entry_level: true },
-          extra,
-          {
-            OR: [
-              { title: { contains: 'cyber' } },
-              { title: { contains: 'security' } },
-              { title: { contains: 'SOC' } },
-              { title: { contains: 'SIEM' } },
-              { title: { contains: 'VAPT' } },
-              { description: { contains: 'cybersecurity' } },
-            ],
-          },
-        ],
-      },
+      where: this.availableJobsWhere(extra),
       orderBy: [{ updated_at: 'desc' }, { id: 'desc' }],
       distinct: ['apply_url'],
       take: this.safeLimit(limit),
@@ -474,7 +487,7 @@ export class StudentPortalService {
       this.prisma.courses.findMany({ where: { status: { not: 'deleted' } } }),
       this.prisma.assignment_security_settings.findMany({ where: { published: true, active: true, enabled: true } }),
       this.prisma.assignment_attempts.findMany({ where: { student_email: email }, orderBy: [{ started_at: 'desc' }, { id: 'desc' }] }),
-      this.prisma.jobs.count(),
+      this.availableJobsCount(),
       student ? this.prisma.applications.count({ where: { student_id: student.id, status: 'applied' } }) : 0,
       this.prisma.student_profiles.findUnique({ where: { email: normalizedEmail }, select: { updated_at: true } }),
       this.prisma.admin_snapshots.findMany({ where: { key: { endsWith: `:${normalizedEmail}` } }, select: { updated_at: true } }),
@@ -519,6 +532,18 @@ export class StudentPortalService {
     const user = academic?.users ?? await this.prisma.users.findUnique({ where: { email: username.toLowerCase() } });
     if (!user || !user.is_active || user.role !== 'student' || !await bcrypt.compare(password, user.hashed_password)) {
       throw new UnauthorizedException('Invalid student credentials');
+    }
+    const security = await this.prisma.student_password_security.upsert({
+      where: { user_id: user.id },
+      create: { user_id: user.id, must_change_password: true, updated_at: new Date() },
+      update: {},
+    });
+    if (security.must_change_password) {
+      return {
+        access_token: null, token_type: null, role: 'student', email: user.email,
+        password_change_required: true,
+        message: 'You must change your temporary password before entering the student portal.',
+      };
     }
     const student = academic ?? await this.prisma.students.findFirst({ where: { user_id: user.id } });
     const profile = await this.prisma.student_profiles.findUnique({ where: { email: user.email } });

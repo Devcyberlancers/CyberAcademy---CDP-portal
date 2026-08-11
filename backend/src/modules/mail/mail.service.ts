@@ -78,9 +78,9 @@ export class MailService {
     const safeLink = /^https?:\/\//i.test(resetLink) ? this.escape(resetLink) : '#';
     return this.send(
       to,
-      'Reset your Cyber Academy password',
-      `Reset your password using this link: ${resetLink}`,
-      `<p>Use the following link to reset your password:</p><p><a href="${safeLink}">Reset Password</a></p><p>This link expires in 15 minutes.</p>`,
+      'Change your Cyber Academy password',
+      `Change your password using this secure link: ${resetLink}`,
+      `<p>Use the following secure link to change your password:</p><p><a href="${safeLink}">Change Password</a></p><p>This link expires in 15 minutes and can be used only once.</p>`,
     );
   }
 

@@ -6,6 +6,7 @@ import { Response } from 'express';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { resolveClientIp, type RequestHeaders } from '../../common/http/client-ip';
 import {
   AssessmentCollectionDto, CloseAttemptDto, EventDto, SaveAnswerDto, StartAttemptDto,
   NativeAssessmentDto,
@@ -35,9 +36,10 @@ export class AssessmentsController {
   }
   @Post(':assignment/start') async start(
     @Param('assignment') assignment: string, @Body() dto: StartAttemptDto, @Ip() ip: string,
-    @Headers('user-agent') userAgent: string, @Res({ passthrough: true }) response: Response,
+    @Headers() headers: RequestHeaders, @Res({ passthrough: true }) response: Response,
   ) {
-    const result = await this.service.start(assignment, dto, ip, userAgent ?? '');
+    const userAgent = Array.isArray(headers['user-agent']) ? headers['user-agent'][0] : headers['user-agent'];
+    const result = await this.service.start(assignment, dto, resolveClientIp(headers, ip), userAgent ?? '');
     if (result.action === 'start') response.status(201);
     return result;
   }

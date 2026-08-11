@@ -60,6 +60,15 @@ export class AuthService {
     return this.jwt.signAsync({ sub: email, role, ...extra });
   }
 
+  private async studentMustChangePassword(userId: number) {
+    const security = await this.prisma.student_password_security.upsert({
+      where: { user_id: userId },
+      create: { user_id: userId, must_change_password: true, updated_at: new Date() },
+      update: {},
+    });
+    return security.must_change_password;
+  }
+
   async login(dto: LoginDto) {
     const email = dto.email.trim().toLowerCase();
     const user = await this.prisma.users.findFirst({ where: { email } });
@@ -70,6 +79,16 @@ export class AuthService {
     const domain = this.config.get<string>('studentEmailDomain');
     if (user.role === users_role.student && !user.email.toLowerCase().endsWith(`@${domain}`)) {
       throw new ForbiddenException(`Student email must end with @${domain}`);
+    }
+    if (user.role === users_role.student && await this.studentMustChangePassword(user.id)) {
+      return {
+        access_token: null,
+        token_type: null,
+        role: user.role,
+        email: user.email,
+        password_change_required: true,
+        message: 'You must change your temporary password before entering the student portal.',
+      };
     }
     const profile = await this.prisma.student_profiles.findUnique({ where: { email: user.email } });
     const name = profile?.full_name || user.email.split('@')[0];
@@ -89,6 +108,7 @@ export class AuthService {
   async validateLocal(email: string, password: string) {
     const user = await this.prisma.users.findUnique({ where: { email: email.toLowerCase() } });
     if (!user || !user.is_active || !(await bcrypt.compare(password, user.hashed_password))) return null;
+    if (user.role === users_role.student && await this.studentMustChangePassword(user.id)) return null;
     return user;
   }
 
@@ -274,39 +294,67 @@ export class AuthService {
   async requestPasswordReset(emailInput: string) {
     const email = emailInput.trim().toLowerCase();
     const user = await this.prisma.users.findUnique({ where: { email } });
-    if (!user) throw new NotFoundException('No account exists for this email. Register first, then try forgot password.');
+    const domain = this.config.get<string>('studentEmailDomain');
+    if (!email.endsWith(`@${domain}`)) throw new UnprocessableEntityException(`Use your official @${domain} email`);
+    if (!user || user.role !== users_role.student) {
+      throw new NotFoundException('No student account exists for this Cyberlancers email.');
+    }
     const token = randomBytes(32).toString('base64url');
-    await this.prisma.password_reset_tokens.create({
-      data: {
-        email,
-        token_hash: this.hashSecret(token),
-        expires_at: new Date(Date.now() + RESET_EXPIRY_MINUTES * 60_000),
-        used_at: null,
-        created_at: new Date(),
-      },
-    });
+    await this.prisma.$transaction([
+      this.prisma.password_reset_tokens.updateMany({
+        where: { email, used_at: null },
+        data: { used_at: new Date() },
+      }),
+      this.prisma.password_reset_tokens.create({
+        data: {
+          email,
+          token_hash: this.hashSecret(token),
+          expires_at: new Date(Date.now() + RESET_EXPIRY_MINUTES * 60_000),
+          used_at: null,
+          created_at: new Date(),
+        },
+      }),
+    ]);
     const resetLink = `${this.config.get<string>('studentFrontendUrl')?.replace(/\/+$/, '')}/reset-password?token=${token}`;
     await this.mail.sendPasswordReset(email, resetLink);
-    await this.logEmail(email, 'Reset your Cyber Academy password', 'password_reset', true);
+    await this.logEmail(email, 'Change your Cyber Academy password', 'password_reset', true);
     return { ok: true, message: 'Password reset link sent' };
   }
 
   async confirmPasswordReset(dto: PasswordResetConfirmDto) {
+    const email = dto.email.trim().toLowerCase();
+    const domain = this.config.get<string>('studentEmailDomain');
+    if (!email.endsWith(`@${domain}`)) throw new UnprocessableEntityException(`Use your official @${domain} email`);
     const record = await this.prisma.password_reset_tokens.findFirst({
-      where: { token_hash: this.hashSecret(dto.token), used_at: null },
+      where: { email, token_hash: this.hashSecret(dto.token), used_at: null },
       orderBy: { created_at: 'desc' },
     });
     if (!record || record.expires_at < new Date()) throw new BadRequestException('Password reset link is invalid or expired');
     const user = await this.prisma.users.findUnique({ where: { email: record.email } });
-    if (!user) throw new NotFoundException('Account not found');
+    if (!user || user.role !== users_role.student) throw new NotFoundException('Student account not found');
+    const passwordHash = await bcrypt.hash(dto.new_password, 12);
+    const changedAt = new Date();
     await this.prisma.$transaction([
       this.prisma.users.update({
         where: { id: user.id },
-        data: { hashed_password: await bcrypt.hash(dto.new_password, 12) },
+        data: { hashed_password: passwordHash },
       }),
-      this.prisma.password_reset_tokens.update({ where: { id: record.id }, data: { used_at: new Date() } }),
+      this.prisma.student_password_security.upsert({
+        where: { user_id: user.id },
+        create: {
+          user_id: user.id, must_change_password: false,
+          password_changed_at: changedAt, updated_at: changedAt,
+        },
+        update: {
+          must_change_password: false, password_changed_at: changedAt, updated_at: changedAt,
+        },
+      }),
+      this.prisma.password_reset_tokens.updateMany({
+        where: { email, used_at: null },
+        data: { used_at: changedAt },
+      }),
     ]);
-    return { ok: true, message: 'Password updated' };
+    return { ok: true, message: 'Password updated successfully' };
   }
 
   async registerAdmin(name: string, emailInput: string, password: string, setupToken?: string) {

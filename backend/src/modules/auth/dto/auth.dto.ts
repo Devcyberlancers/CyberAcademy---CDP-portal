@@ -1,4 +1,4 @@
-import { IsEmail, IsString, Length, MaxLength, MinLength } from 'class-validator';
+import { IsEmail, IsString, Length, Matches, MaxLength, MinLength } from 'class-validator';
 
 export class LoginDto {
   @IsEmail()
@@ -34,11 +34,18 @@ export class EmailDto {
 }
 
 export class PasswordResetConfirmDto {
+  @IsEmail()
+  email: string;
+
   @IsString()
   token: string;
 
   @IsString()
-  @MinLength(8)
+  @MinLength(12)
+  @MaxLength(128)
+  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9])\S{12,128}$/, {
+    message: 'Password must be strong: use 12 or more characters with uppercase, lowercase, number, and special character',
+  })
   new_password: string;
 }
 
