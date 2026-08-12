@@ -2365,7 +2365,7 @@ function JobsView({ headerSearch }: { headerSearch: string }) {
 
           {Object.keys(errors).length > 0 && (
             <Card className="mb-5 rounded-[8px] border border-[#ffe1b8] bg-[#fffaf0] p-4 text-sm text-[#7a4d00]">
-              Real jobs could not be loaded right now. Check that the backend and MySQL are running, then use Fetch Jobs.
+              {Object.values(errors)[0] || "Jobs could not be loaded right now. Please retry."}
             </Card>
           )}
 
