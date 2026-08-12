@@ -10,6 +10,9 @@ import {
   StudentProfileCompleteDto,
 } from './dto/student-portal.dto';
 
+const KARNATAKA_JOB_LOCATIONS = /(karnataka|bengaluru|bangalore|mysuru|mysore|mangaluru|mangalore|hubballi|dharwad|belagavi|belgaum|tumakuru|udupi|shivamogga)/i;
+const INDIA_JOB_LOCATIONS = /(india|karnataka|bengaluru|bangalore|mysuru|mysore|mangaluru|mangalore|hubballi|dharwad|belagavi|belgaum|tumakuru|udupi|shivamogga|delhi|noida|gurugram|gurgaon|mumbai|pune|hyderabad|chennai|kolkata|kochi|cochin|ahmedabad|jaipur|chandigarh|remote.*india)/i;
+
 @Injectable()
 export class StudentPortalService {
   constructor(private readonly prisma: PrismaService, private readonly auth: AuthService) {}
@@ -28,7 +31,6 @@ export class StudentPortalService {
       posted_date: job.posted_date,
       apply_url: job.apply_url,
       company_logo: job.company_logo,
-      platform: job.platform,
       match_score: job.match_score,
       is_entry_level: job.is_entry_level,
       created_at: job.created_at,
@@ -42,6 +44,17 @@ export class StudentPortalService {
       throw new BadRequestException(`limit must be between 1 and ${max}`);
     }
     return limit;
+  }
+
+  private eligibleFresherIndiaJob(job: any) {
+    const text = `${job.title ?? ''} ${job.description ?? ''}`.toLowerCase();
+    const cyber = /(cyber|security|soc|siem|threat|incident|vapt|penetration)/.test(text);
+    const entry = /(fresher|entry.level|junior|graduate|trainee|intern(?:ship)?|campus|new grad|0\s*(?:-|to)\s*[12]\s*years?|up to 2 years?)/.test(text);
+    const senior = /(senior|lead|manager|principal|architect|staff engineer|[3-9]\+?\s*years?|[2-9]\s*(?:-|to)\s*[3-9]\s*years?)/.test(text.slice(0, 14_000));
+    const location = String(job.location ?? '');
+    const india = INDIA_JOB_LOCATIONS.test(`${location} ${String(job.description ?? '').slice(0, 3_000)}`)
+      && !/(united states|usa|canada|europe|united kingdom|uk only|australia|singapore|germany|france)/i.test(location);
+    return cyber && entry && !senior && india;
   }
 
   companies() {
@@ -69,17 +82,34 @@ export class StudentPortalService {
 
   private async batchJobWhere(email?: string): Promise<Prisma.jobsWhereInput> {
     if (!email) return {};
-    const profile = await this.prisma.student_profiles.findUnique({ where: { email: email.toLowerCase() }, select: { batch: true } });
-    return profile ? { platform: `admin:${profile.batch}` } : { id: -1 };
+    const [profile, availabilityRows] = await Promise.all([
+      this.prisma.student_profiles.findUnique({ where: { email: email.toLowerCase() }, select: { batch: true } }),
+      this.prisma.admin_snapshots.findMany({
+        where: { key: { startsWith: 'job-availability:' } },
+        select: { key: true, payload: true },
+      }),
+    ]);
+    if (!profile) return { id: -1 };
+    const closedIds = availabilityRows
+      .filter((row) => {
+        try { return JSON.parse(row.payload)?.status === 'closed'; } catch { return false; }
+      })
+      .map((row) => Number(row.key.slice('job-availability:'.length)))
+      .filter((id) => Number.isInteger(id) && id > 0);
+    return {
+      AND: [
+        { platform: `admin:${profile.batch}` },
+        ...(closedIds.length ? [{ id: { notIn: closedIds } }] : []),
+      ],
+    };
   }
 
   async availableJobsCount(extra: Prisma.jobsWhereInput = {}, email?: string) {
     const rows = await this.prisma.jobs.findMany({
       where: { AND: [this.availableJobsWhere(extra), await this.batchJobWhere(email)] },
       distinct: ['apply_url'],
-      select: { apply_url: true },
     });
-    return rows.length;
+    return rows.filter((row) => this.eligibleFresherIndiaJob(row)).length;
   }
 
   async jobs(limit?: number, extra: Prisma.jobsWhereInput = {}, email?: string) {
@@ -87,9 +117,12 @@ export class StudentPortalService {
       where: { AND: [this.availableJobsWhere(extra), await this.batchJobWhere(email)] },
       orderBy: [{ updated_at: 'desc' }, { id: 'desc' }],
       distinct: ['apply_url'],
-      take: this.safeLimit(limit),
     });
-    return rows.map((row) => this.jobOut(row));
+    const preferred = rows.filter((row) => this.eligibleFresherIndiaJob(row)).sort((left, right) => {
+      const locationPriority = Number(KARNATAKA_JOB_LOCATIONS.test(right.location)) - Number(KARNATAKA_JOB_LOCATIONS.test(left.location));
+      return locationPriority || right.updated_at.getTime() - left.updated_at.getTime() || right.id - left.id;
+    });
+    return preferred.slice(0, this.safeLimit(limit)).map((row) => this.jobOut(row));
   }
 
   async latestJobs(limit?: number) {

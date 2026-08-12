@@ -102,7 +102,7 @@ export class StudentPortalController {
   async refreshJobs(
     @CurrentUser() user: AuthenticatedUser,
     @Query('location') location = 'India',
-    @Query('platforms') platforms = 'naukri,linkedin,indeed,foundit,wellfound',
+    @Query('platforms') platforms = 'naukri,linkedin,indeed,foundit,wellfound,cutshort,hirist,companycareers,greenhouse,remoteok',
     @Query('limit_per_source') limit = '10',
   ) {
     this.requireStudent(user);

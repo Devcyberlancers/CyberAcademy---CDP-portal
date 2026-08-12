@@ -2592,7 +2592,6 @@ function searchableJobText(job: ExternalJob) {
     job.location,
     job.experience,
     job.employment_type,
-    job.platform,
     job.salary,
     job.description,
     job.skills.join(" ")
