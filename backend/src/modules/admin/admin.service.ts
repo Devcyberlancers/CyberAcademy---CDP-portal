@@ -772,6 +772,7 @@ export class AdminService {
     const email = dto.credential_email.trim().toLowerCase();
     const deliveryEmail = dto.email.trim().toLowerCase();
     const registrationNumber = dto.register_number.trim();
+    const batch = dto.batch.trim().replace(/\s+/g, ' ');
     if (dto.username.trim().toLowerCase() !== email) throw new UnprocessableEntityException('Draft username and Cyber Lancers login email must be identical');
     const domain = `@${this.config.get<string>('studentEmailDomain')}`;
     if (!email.endsWith(domain)) throw new UnprocessableEntityException(`Student login email must end with ${domain}`);
@@ -792,7 +793,7 @@ export class AdminService {
           data: {
             email, full_name: dto.name.trim(), first_name: dto.name.trim().split(/\s+/)[0],
             registration_number: registrationNumber, cyberlancers_id: '', phone: dto.phone ?? '',
-            course: dto.degree ?? '', department: dto.branch ?? '', batch: dto.batch ?? '',
+            course: dto.degree ?? '', department: dto.branch ?? '', batch,
             status: 'Waiting for Student', tag: 'Profile Pending', gender: '', date_of_birth: '', college: '',
             resume_url: '', mentor_name: '', personal_email: deliveryEmail === email ? null : deliveryEmail, updated_at: new Date(),
           },
@@ -806,7 +807,7 @@ export class AdminService {
         if (!department) department = await tx.departments.create({ data: { name: departmentName, code: (departmentName.toUpperCase().replace(/[^A-Z0-9]/g, '') || 'GENERAL').slice(0, 20) } });
         await tx.students.create({ data: { user_id: user.id, department_id: department.id, full_name: dto.name.trim(), usn: registrationNumber, cgpa: new Prisma.Decimal(0), skills: '' } });
         await tx.portal_access_settings.create({ data: { scope_key: email, courses_enabled: false, assessments_enabled: false, jobs_enabled: false, updated_by: actorEmail, updated_at: new Date() } });
-        await tx.audit_logs.create({ data: { actor_email: actorEmail, action: 'STUDENT_ACCOUNT_CREATED', target_type: 'student', target_id: String(createdProfile.id), details: JSON.stringify({ email, registrationNumber }), created_at: new Date() } });
+        await tx.audit_logs.create({ data: { actor_email: actorEmail, action: 'STUDENT_ACCOUNT_CREATED', target_type: 'student', target_id: String(createdProfile.id), details: JSON.stringify({ email, registrationNumber, batch }), created_at: new Date() } });
         return createdProfile;
       });
     } catch (error) {

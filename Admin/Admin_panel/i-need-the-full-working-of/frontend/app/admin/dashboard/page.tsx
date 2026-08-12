@@ -215,7 +215,7 @@ type IntakeRecord = {
   phone?: string;
   degree?: string;
   branch?: string;
-  batch?: string;
+  batch: string;
 };
 
 type DashboardAccountCreatorProps = {
@@ -261,7 +261,7 @@ function DashboardAccountCreator({ registrations, selectedId, onSelect, registra
   const [phone, setPhone] = useState("");
   const [degree, setDegree] = useState("");
   const [branch, setBranch] = useState("");
-  const [batch, setBatch] = useState("");
+  const [batch, setBatch] = useState("2026 A");
   const [personalEmail, setPersonalEmail] = useState("");
   const [credentialEmail, setCredentialEmail] = useState(registration?.credentialEmail ?? "");
   const [senderEmail, setSenderEmail] = useState(registration?.senderEmail ?? defaultSenderEmail);
@@ -320,6 +320,11 @@ function DashboardAccountCreator({ registrations, selectedId, onSelect, registra
       setNotice(mode === "new" && !batch.trim() ? "Enter the student batch name (for example, 2026 A)." : "Fill all account and email fields before creating or sending credentials.");
       return;
     }
+    const normalizedBatch = batch.trim().replace(/\s+/g, " ");
+    if (mode === "new" && !/^\d{4}\s+[A-Za-z0-9][A-Za-z0-9 _-]*$/.test(normalizedBatch)) {
+      setNotice("Batch must start with a four-digit year followed by an editable label, for example 2026 A, 2026 1, or 2026 Cybersecurity.");
+      return;
+    }
     if (!credentialEmail.trim().toLowerCase().endsWith("@cyberlancers.in")) {
       setNotice("The allocated Student login email must end with @cyberlancers.in.");
       return;
@@ -343,7 +348,7 @@ function DashboardAccountCreator({ registrations, selectedId, onSelect, registra
     setPhone("");
     setDegree("");
     setBranch("");
-    setBatch("");
+    setBatch("2026 A");
     setPersonalEmail("");
     setCredentialEmail("");
     setUsername("");
@@ -411,7 +416,8 @@ function DashboardAccountCreator({ registrations, selectedId, onSelect, registra
             </label>
             <label>
               <span className="mb-1 block font-bold text-slate-600">Batch *</span>
-              <input value={batch} onChange={(event) => setBatch(event.target.value)} className="h-9 w-full rounded-md border border-portal-line px-3 outline-none focus:border-portal-blue" placeholder="e.g. 2026 A" />
+              <input value={batch} onChange={(event) => setBatch(event.target.value)} onBlur={() => setBatch((value) => value.trim().replace(/\s+/g, " "))} className="h-9 w-full rounded-md border border-portal-line px-3 outline-none focus:border-portal-blue" placeholder="e.g. 2026 A" />
+              <span className="mt-1 block text-[11px] text-slate-500">Four-digit year + editable label (letters, words, or numbers).</span>
             </label>
             <label>
               <span className="mb-1 block font-bold text-slate-600">Degree</span>
@@ -466,7 +472,7 @@ function DashboardAccountCreator({ registrations, selectedId, onSelect, registra
                 await onCreate(registrationId, { name, username: credentialEmail, tempPassword, portalLink, credentialEmail, deliveryEmail: personalEmail, senderEmail, companyEmail });
               } else {
                 registrationId = await onCreateNew(
-                  { name, regNo, email: personalEmail, phone, degree, branch, batch },
+                  { name, regNo, email: personalEmail, phone, degree, branch, batch: batch.trim().replace(/\s+/g, " ") },
                   { name, username: credentialEmail, tempPassword, portalLink, credentialEmail, senderEmail, companyEmail }
                 );
                 if (!registrationId) {
@@ -563,6 +569,7 @@ function BulkCsvAccountCreator({ onCreate }: {
   const [previewIndex, setPreviewIndex] = useState(0);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  const [bulkBatch, setBulkBatch] = useState("2026 A");
   const portalLink = process.env.NEXT_PUBLIC_STUDENT_PORTAL_LINK ?? "http://localhost:3000";
   const preview = rows[previewIndex] ?? rows[0];
 
@@ -570,6 +577,7 @@ function BulkCsvAccountCreator({ onCreate }: {
     if (!row.name || !row.delivery_email || !row.login_email) return "Student name, sender mail and login mail are required";
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.delivery_email)) return "Sender mail is not a valid email address";
     if (!row.login_email.toLowerCase().endsWith("@cyberlancers.in")) return "Login email must end with @cyberlancers.in";
+    if (!/^\d{4}\s+[A-Za-z0-9][A-Za-z0-9 _-]*$/.test(row.batch)) return "Batch must use a four-digit year and label, for example 2026 A";
     return "";
   }
 
@@ -582,12 +590,17 @@ function BulkCsvAccountCreator({ onCreate }: {
   }
 
   async function createAll() {
+    const normalizedBatch = bulkBatch.trim().replace(/\s+/g, " ");
+    if (!/^\d{4}\s+[A-Za-z0-9][A-Za-z0-9 _-]*$/.test(normalizedBatch)) {
+      setNotice("Enter a valid batch before bulk creation, for example 2026 A, 2026 1, or 2026 Cybersecurity.");
+      return;
+    }
     setBusy(true); setNotice("");
     let created = 0;
     const errors: string[] = [];
     const seen = new Set<string>();
     for (let index = 0; index < rows.length; index++) {
-      const row = rows[index];
+      const row = { ...rows[index], batch: normalizedBatch };
       try {
         const validationError = rowError(row);
         if (validationError) throw new Error(validationError);
@@ -615,6 +628,19 @@ function BulkCsvAccountCreator({ onCreate }: {
         <div><h3 className="font-bold text-slate-950">Bulk student creation</h3><p className="mt-1 text-sm text-slate-500">Upload CSV rows and send each student the same credential email used by manual creation.</p></div>
         <button type="button" onClick={downloadTemplate} className="flex h-10 items-center gap-2 rounded-md border border-portal-line px-4 text-sm font-bold text-portal-blue"><Download size={16} /> CSV Template</button>
       </div>
+      <label className="mt-4 block max-w-md">
+        <span className="mb-1 block text-xs font-bold text-slate-700">Batch for every imported student *</span>
+        <input value={bulkBatch} onChange={(event) => {
+          const next = event.target.value;
+          setBulkBatch(next);
+          setRows((current) => current.map((row) => ({ ...row, batch: next.trim().replace(/\s+/g, " ") })));
+        }} onBlur={() => {
+          const normalized = bulkBatch.trim().replace(/\s+/g, " ");
+          setBulkBatch(normalized);
+          setRows((current) => current.map((row) => ({ ...row, batch: normalized })));
+        }} className="h-10 w-full rounded-md border border-portal-line bg-white px-3 text-sm outline-none focus:border-portal-blue" placeholder="2026 A" />
+        <span className="mt-1 block text-xs text-slate-500">The year is required; the label can be letters, words, or numbers.</span>
+      </label>
       <label className="mt-4 flex min-h-28 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-blue-200 bg-blue-50 p-4 text-center">
         <Upload size={25} className="text-portal-blue" /><span className="mt-2 font-bold text-slate-800">Choose student CSV</span>
         <input type="file" accept=".csv,text/csv" className="hidden" onChange={async (event) => {
@@ -664,7 +690,7 @@ function BulkCsvAccountCreator({ onCreate }: {
               phone: value(row, "phone"),
               degree: value(row, "degree"),
               branch: value(row, "branch"),
-              batch: value(row, "batch")
+              batch: bulkBatch.trim().replace(/\s+/g, " ")
             };
           }).filter((row) => row.name || row.delivery_email || row.login_email));
           setPreviewIndex(0);

@@ -74,7 +74,7 @@ export type StudentAccountPayload = {
   phone?: string;
   degree?: string;
   branch?: string;
-  batch?: string;
+  batch: string;
   username: string;
   temp_password: string;
   portal_link: string;

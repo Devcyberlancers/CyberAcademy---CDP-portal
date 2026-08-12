@@ -417,7 +417,7 @@ export function AdminStoreProvider({ children }: { children: React.ReactNode }) 
       phone: registration.phone || undefined,
       degree: registration.degree || undefined,
       branch: registration.branch || undefined,
-      batch: registration.batch || undefined,
+      batch: registration.batch?.trim() || "2026 A",
       username,
       temp_password: tempPassword,
       portal_link: portalLink,
@@ -456,7 +456,10 @@ export function AdminStoreProvider({ children }: { children: React.ReactNode }) 
       branch: record.branch?.trim() ?? "",
       batch: record.batch?.trim() ?? ""
     };
-    if (!cleanRecord.name || !cleanRecord.regNo || !cleanRecord.email) return "";
+    if (!cleanRecord.name || !cleanRecord.regNo || !cleanRecord.email || !cleanRecord.batch) return "";
+    if (!/^\d{4}\s+[A-Za-z0-9][A-Za-z0-9 _-]*$/.test(cleanRecord.batch)) {
+      throw new Error("Batch must start with a four-digit year followed by a label, for example 2026 A.");
+    }
 
     const duplicate = [...registrations, ...students].some((item) => item.regNo.toLowerCase() === cleanRecord.regNo.toLowerCase());
     if (duplicate) return "";
@@ -524,7 +527,7 @@ export function AdminStoreProvider({ children }: { children: React.ReactNode }) 
         phone: cleanRecord.phone || undefined,
         degree: cleanRecord.degree || undefined,
         branch: cleanRecord.branch || undefined,
-        batch: cleanRecord.batch || undefined,
+        batch: cleanRecord.batch,
         username,
         temp_password: tempPassword,
         portal_link: portalLink,
@@ -587,7 +590,7 @@ export function AdminStoreProvider({ children }: { children: React.ReactNode }) 
           phone: registration.phone || undefined,
           degree: registration.degree || undefined,
           branch: registration.branch || undefined,
-          batch: registration.batch || undefined,
+          batch: registration.batch?.trim() || "2026 A",
           username,
           temp_password: tempPassword,
           portal_link: portalLink,

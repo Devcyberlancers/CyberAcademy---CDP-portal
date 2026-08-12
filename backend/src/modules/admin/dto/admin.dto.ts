@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsArray, IsBoolean, IsDateString, IsEmail, IsInt, IsOptional, IsString, Matches,
   Max, MaxLength, Min, MinLength, ValidateNested,
@@ -105,7 +105,13 @@ export class StudentAccountDto {
   @IsOptional() @IsString() phone?: string;
   @IsOptional() @IsString() degree?: string;
   @IsOptional() @IsString() branch?: string;
-  @IsOptional() @IsString() batch?: string;
+  @IsString()
+  @Transform(({ value }) => typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : value)
+  @MaxLength(80)
+  @Matches(/^\d{4}\s+[A-Za-z0-9][A-Za-z0-9 _-]*$/, {
+    message: 'batch must start with a four-digit year followed by a label, for example 2026 A',
+  })
+  batch!: string;
   @IsString() @MinLength(3) @MaxLength(80) username!: string;
   @IsOptional() @IsString() @MaxLength(120) temp_password?: string;
   @IsString() @MinLength(5) @MaxLength(500) portal_link!: string;
@@ -132,7 +138,13 @@ export class LegacyStudentLoginDto {
   @IsOptional() @IsString() password?: string;
   @IsOptional() @IsString() cyberlancers_id = '';
   @IsOptional() @IsString() registration_number = '';
-  @IsOptional() @IsString() batch = '';
+  @IsString()
+  @Transform(({ value }) => typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : value)
+  @MaxLength(80)
+  @Matches(/^\d{4}\s+[A-Za-z0-9][A-Za-z0-9 _-]*$/, {
+    message: 'batch must start with a four-digit year followed by a label, for example 2026 A',
+  })
+  batch!: string;
   @IsOptional() @IsString() course = '';
   @IsOptional() @IsString() college = '';
   @IsOptional() @IsString() department = 'Cyber Security';
