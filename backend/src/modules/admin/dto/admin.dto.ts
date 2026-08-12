@@ -10,6 +10,16 @@ export class AccessDto {
   @IsBoolean() jobs_enabled!: boolean;
 }
 
+export class AdminBatchDto {
+  @IsString()
+  @Transform(({ value }) => typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : value)
+  @MaxLength(40)
+  @Matches(/^\d{4}\s+[A-Za-z0-9][A-Za-z0-9 _-]*$/, {
+    message: 'batch must start with a four-digit year followed by a label, for example 2026 A',
+  })
+  name!: string;
+}
+
 export class LessonDto {
   @IsString() title!: string;
   @IsOptional() @IsString() video_url?: string;

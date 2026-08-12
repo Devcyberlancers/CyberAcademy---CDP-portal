@@ -391,7 +391,7 @@ export function StudentPortal() {
     try {
       const [courseResponse, jobResponse] = await Promise.all([
         fetch(new URL("/api/courses", apiBaseUrl).toString(), { cache: "no-store", headers: (() => { const token = window.localStorage.getItem("cyber-academy-auth-token"); return token ? { Authorization: `Bearer ${token}` } : undefined; })() }),
-        fetch(new URL("/api/jobs/entry-level?limit=500", apiBaseUrl).toString(), { cache: "no-store" })
+        fetch((() => { const url = new URL("/api/jobs/entry-level?limit=500", apiBaseUrl); url.searchParams.set("email", readStudentAccount().email); return url.toString(); })(), { cache: "no-store" })
       ]);
       const courses = courseResponse.ok ? await courseResponse.json() as Array<Record<string, unknown>> : [];
       const jobs = jobResponse.ok ? await jobResponse.json() as Array<Record<string, unknown>> : [];
@@ -1967,8 +1967,10 @@ function JobDashboardView({ headerSearch, student, onSectionChange }: { headerSe
     try {
       const url = new URL("/api/jobs/entry-level", apiBaseUrl);
       url.searchParams.set("limit", "500");
+      url.searchParams.set("email", readStudentAccount().email);
       url.searchParams.set("_", String(Date.now()));
       const countUrl = new URL("/api/jobs/entry-level/count", apiBaseUrl);
+      countUrl.searchParams.set("email", readStudentAccount().email);
       countUrl.searchParams.set("_", String(Date.now()));
       const [response, countResponse] = await Promise.all([
         fetch(url.toString(), { cache: "no-store" }),
@@ -2217,8 +2219,10 @@ function JobsView({ headerSearch }: { headerSearch: string }) {
       const url = new URL("/api/jobs/entry-level", apiBaseUrl);
       if (locationOverride) url.searchParams.set("location", locationOverride);
       url.searchParams.set("limit", "500");
+      url.searchParams.set("email", readStudentAccount().email);
       url.searchParams.set("_", String(Date.now()));
       const countUrl = new URL("/api/jobs/entry-level/count", apiBaseUrl);
+      countUrl.searchParams.set("email", readStudentAccount().email);
       if (locationOverride) countUrl.searchParams.set("location", locationOverride);
       countUrl.searchParams.set("_", String(Date.now()));
       const [response, countResponse] = await Promise.all([

@@ -11,6 +11,7 @@ import { PrismaService } from './prisma/prisma.service';
 import { json, urlencoded, type NextFunction, type Request, type Response } from 'express';
 
 const CURRENT_STUDENT_BATCH_MIGRATION = 'CONSOLIDATE_EXISTING_STUDENTS_TO_2026_A_V1';
+const CURRENT_CONTENT_BATCH_MIGRATION = 'ASSIGN_EXISTING_CONTENT_TO_2026_A_V1';
 
 async function consolidateExistingStudentsIntoCurrentBatch(prisma: PrismaService) {
   const alreadyApplied = await prisma.audit_logs.findFirst({
@@ -36,6 +37,27 @@ async function consolidateExistingStudentsIntoCurrentBatch(prisma: PrismaService
   });
 }
 
+async function assignExistingContentToCurrentBatch(prisma: PrismaService) {
+  if (await prisma.audit_logs.findFirst({ where: { action: CURRENT_CONTENT_BATCH_MIGRATION }, select: { id: true } })) return;
+  await prisma.$transaction(async (tx) => {
+    const courses = await tx.courses.findMany();
+    for (const course of courses) {
+      const metadata = course.metadata_json && typeof course.metadata_json === 'object' && !Array.isArray(course.metadata_json) ? course.metadata_json : {};
+      await tx.courses.update({ where: { id: course.id }, data: { metadata_json: { ...metadata, target_batch: '2026 A' }, updated_at: new Date() } });
+    }
+    const collections = await tx.assessment_collections.findMany({ where: { storage_key: { not: { contains: ':batch:' } } } });
+    for (const collection of collections) {
+      await tx.assessment_collections.upsert({
+        where: { storage_key: `${collection.storage_key}:batch:2026 A` },
+        create: { storage_key: `${collection.storage_key}:batch:2026 A`, kind: collection.kind, course_key: collection.course_key, payload: collection.payload, updated_at: new Date() },
+        update: { payload: collection.payload, updated_at: new Date() },
+      });
+    }
+    await tx.jobs.updateMany({ data: { platform: 'admin:2026 A', updated_at: new Date() } });
+    await tx.audit_logs.create({ data: { actor_email: 'system', action: CURRENT_CONTENT_BATCH_MIGRATION, target_type: 'content', target_id: '2026 A', details: JSON.stringify({ courses: courses.length, assessments: collections.length }), created_at: new Date() } });
+  });
+}
+
 function normalizeEmailFields(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(normalizeEmailFields);
   if (!value || typeof value !== 'object') return value;
@@ -54,6 +76,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true, bodyParser: false });
   const config = app.get(ConfigService);
   await consolidateExistingStudentsIntoCurrentBatch(app.get(PrismaService));
+  await assignExistingContentToCurrentBatch(app.get(PrismaService));
   app.useLogger(app.get(Logger));
   app.getHttpAdapter().getInstance().set('trust proxy', 1);
   app.use(json({ limit: '12mb' }));

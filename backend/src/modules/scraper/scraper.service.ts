@@ -36,9 +36,9 @@ const CONFIG: Record<string, any> = {
 
 @Injectable()
 export class ScraperService {
-  private refreshPromise: Promise<{
+  private readonly refreshPromises = new Map<string, Promise<{
     stored: number; created: number; updated: number; fetched: number; errors: Record<string, string>;
-  }> | null = null;
+  }>>();
   constructor(private readonly prisma: PrismaService) {
     // The setup command keeps Chromium here, so the refresh worker does not
     // depend on a developer's or host's global Playwright cache.
@@ -105,19 +105,23 @@ export class ScraperService {
     } finally { await page.close(); }
   }
 
-  async refresh(location = 'India', platforms = Object.keys(CONFIG), limit = 10) {
-    if (this.refreshPromise) return this.refreshPromise;
+  async refresh(location = 'India', platforms = Object.keys(CONFIG), limit = 10, batch = '2026 A') {
     const cleanLocation = String(location || 'India').trim().slice(0, 100) || 'India';
     const cleanPlatforms = Array.from(new Set(platforms.filter((platform) => CONFIG[platform])));
     const safePlatforms = cleanPlatforms.length ? cleanPlatforms : Object.keys(CONFIG);
     const numericLimit = Number(limit);
     const safeLimit = Number.isFinite(numericLimit) ? Math.min(20, Math.max(1, Math.trunc(numericLimit))) : 10;
-    this.refreshPromise = this.runRefresh(cleanLocation, safePlatforms, safeLimit)
-      .finally(() => { this.refreshPromise = null; });
-    return this.refreshPromise;
+    const targetBatch = String(batch || '2026 A').trim().slice(0, 80) || '2026 A';
+    const refreshKey = `${targetBatch}\u0000${cleanLocation}\u0000${safePlatforms.join(',')}\u0000${safeLimit}`;
+    const running = this.refreshPromises.get(refreshKey);
+    if (running) return running;
+    const refreshPromise = this.runRefresh(cleanLocation, safePlatforms, safeLimit, targetBatch)
+      .finally(() => { this.refreshPromises.delete(refreshKey); });
+    this.refreshPromises.set(refreshKey, refreshPromise);
+    return refreshPromise;
   }
 
-  private async runRefresh(location: string, platforms: string[], limit: number) {
+  private async runRefresh(location: string, platforms: string[], limit: number, batch: string) {
     let browser;
     let created = 0;
     let updated = 0;
@@ -153,10 +157,14 @@ export class ScraperService {
       });
       const urls = [...uniqueJobs.keys()];
       const existingRows = urls.length
-        ? await this.prisma.jobs.findMany({ where: { apply_url: { in: urls } }, orderBy: { id: 'asc' } })
+        ? await this.prisma.jobs.findMany({
+          where: { apply_url: { in: urls }, platform: `admin:${batch}` },
+          orderBy: { id: 'asc' },
+        })
         : [];
       const existingByUrl = new Map(existingRows.map((row) => [row.apply_url, row]));
       for (const job of uniqueJobs.values()) {
+        job.platform = `admin:${batch}`;
         const existing = existingByUrl.get(job.apply_url);
         const now = new Date();
         if (existing) {

@@ -25,7 +25,7 @@ export class StudentLegacyController {
 
   @Get('courses/:course/assessments')
   @UseGuards(JwtAuthGuard)
-  assessments(@Param('course') course: string) { return this.service.courseAssessments(course); }
+  assessments(@Param('course') course: string, @CurrentUser() user: AuthenticatedUser) { return this.service.courseAssessments(course, user.sub); }
 
   @Post('courses/:course/assessment-submissions')
   @UseGuards(JwtAuthGuard)

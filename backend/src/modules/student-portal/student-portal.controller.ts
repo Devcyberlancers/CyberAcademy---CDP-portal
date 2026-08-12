@@ -15,7 +15,7 @@ export class StudentPortalController {
   constructor(private readonly service: StudentPortalService, private readonly scraper: ScraperService) {}
 
   @Get('companies') companies() { return this.service.companies(); }
-  @Get('jobs') jobs(@Query('limit') limit?: string) { return this.service.jobs(limit ? Number(limit) : undefined); }
+  @Get('jobs') jobs(@Query('limit') limit?: string, @Query('email') email?: string) { return this.service.jobs(limit ? Number(limit) : undefined, {}, email); }
   @Get('jobs/latest') latest(@Query('limit') limit?: string) { return this.service.latestJobs(limit ? Number(limit) : undefined); }
   @Get('jobs/platform/:platform') platform(@Param('platform') platform: string, @Query('limit') limit?: string) {
     return this.service.platformJobs(platform, limit ? Number(limit) : undefined);
@@ -28,11 +28,11 @@ export class StudentPortalController {
     return this.service.searchJobs('', location, limit ? Number(limit) : undefined);
   }
   @Get('jobs/locations') locations(@Query('limit') limit?: string) { return this.service.locations(limit ? Number(limit) : undefined); }
-  @Get('jobs/entry-level') entry(@Query('location') location?: string, @Query('limit') limit?: string) {
-    return this.service.jobs(limit ? Number(limit) : undefined, location ? { location: { contains: location } } : {});
+  @Get('jobs/entry-level') entry(@Query('location') location?: string, @Query('limit') limit?: string, @Query('email') email?: string) {
+    return this.service.jobs(limit ? Number(limit) : undefined, location ? { location: { contains: location } } : {}, email);
   }
-  @Get('jobs/entry-level/count') async entryCount(@Query('location') location?: string) {
-    const count = await this.service.availableJobsCount(location ? { location: { contains: location } } : {});
+  @Get('jobs/entry-level/count') async entryCount(@Query('location') location?: string, @Query('email') email?: string) {
+    const count = await this.service.availableJobsCount(location ? { location: { contains: location } } : {}, email);
     return { count };
   }
   @Post('jobs/:id/application-status') status(@Param('id', ParseIntPipe) id: number, @Body() dto: ApplicationStatusDto) {
@@ -99,14 +99,20 @@ export class StudentPortalController {
 
   @Post('jobs/refresh')
   @UseGuards(JwtAuthGuard)
-  refreshJobs(
+  async refreshJobs(
     @CurrentUser() user: AuthenticatedUser,
     @Query('location') location = 'India',
     @Query('platforms') platforms = 'naukri,linkedin,indeed,foundit,wellfound',
     @Query('limit_per_source') limit = '10',
   ) {
     this.requireStudent(user);
-    return this.scraper.refresh(location, platforms.split(',').map((v) => v.trim().toLowerCase()).filter(Boolean), Number(limit));
+    const profile = await this.service.getProfile(user.sub);
+    return this.scraper.refresh(
+      location,
+      platforms.split(',').map((v) => v.trim().toLowerCase()).filter(Boolean),
+      Number(limit),
+      profile.batch,
+    );
   }
 
   @Get('student-messages')

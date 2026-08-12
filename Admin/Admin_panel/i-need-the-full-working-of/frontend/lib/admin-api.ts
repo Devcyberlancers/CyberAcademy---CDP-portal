@@ -2,6 +2,7 @@ import { studentPortalPath } from "@/lib/urls";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 const tokenStorageKey = "student-portal-admin-token";
+export const selectedAdminBatchStorageKey = "cyber-academy-admin-selected-batch-v1";
 
 export type AdminNotificationDetail = {
   type: "success" | "error";
@@ -116,7 +117,13 @@ export type DbStudent = {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = typeof window !== "undefined" ? window.localStorage.getItem(tokenStorageKey) : null;
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const method = (init?.method ?? "GET").toUpperCase();
+  let requestPath = path;
+  if (typeof window !== "undefined" && path.includes("/admin/") && !path.startsWith("/api/admin/batches")) {
+    const selectedBatch = window.localStorage.getItem(selectedAdminBatchStorageKey)?.trim();
+    if (selectedBatch) requestPath += `${requestPath.includes("?") ? "&" : "?"}batch=${encodeURIComponent(selectedBatch)}`;
+  }
+  const response = await fetch(`${API_BASE_URL}${requestPath}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -134,11 +141,31 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new Error(message || `Request failed with ${response.status}`);
   }
-  const method = (init?.method ?? "GET").toUpperCase();
   if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
     notify({ type: "success", message: mutationMessage(path, method) });
   }
   return response.json() as Promise<T>;
+}
+
+export type AdminBatch = {
+  name: string;
+  student_count: number;
+  created_at?: string | null;
+  created_by?: string | null;
+};
+
+export type AdminBatchContext = { selected_batch: string; batches: AdminBatch[] };
+
+export function getAdminBatchContext() {
+  return request<AdminBatchContext>("/api/admin/batches");
+}
+
+export function createAdminBatch(name: string) {
+  return request<AdminBatchContext>("/api/admin/batches", { method: "POST", body: JSON.stringify({ name }) });
+}
+
+export function selectAdminBatch(name: string) {
+  return request<{ selected_batch: string }>("/api/admin/batches/selection", { method: "PUT", body: JSON.stringify({ name }) });
 }
 
 export type AdminAssessmentAttempt = {

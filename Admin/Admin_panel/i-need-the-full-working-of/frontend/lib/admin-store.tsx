@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { assignCourseToStudent, createStudentAccountInDb, deleteStudentFromDb, listStudentsFromDb, resetStudentPasswordInDb, sendStudentCredentialsFromDb, type DbStudent } from "@/lib/admin-api";
+import { useAdminBatch } from "@/lib/admin-batch-context";
 
 export type StudentStatus = "Pending Approval" | "New User" | "In Progress" | "Advanced" | "Suspended" | "Rejected";
 
@@ -157,6 +158,7 @@ function registrationFromDb(student: DbStudent): RegistrationRecord {
 }
 
 export function AdminStoreProvider({ children }: { children: React.ReactNode }) {
+  const { selectedBatch } = useAdminBatch();
   const [students, setStudents] = useState<StudentRecord[]>(initialStudents);
   const [registrations, setRegistrations] = useState<RegistrationRecord[]>(initialRegistrations);
   const [activityLog, setActivityLog] = useState<string[]>([]);
@@ -781,20 +783,23 @@ export function AdminStoreProvider({ children }: { children: React.ReactNode }) 
     addLog(`${student.name} account and associated data permanently deleted.`);
   }
 
+  const batchStudents = useMemo(() => students.filter((student) => student.batch?.trim() === selectedBatch), [selectedBatch, students]);
+  const batchRegistrations = useMemo(() => registrations.filter((registration) => registration.batch?.trim() === selectedBatch), [registrations, selectedBatch]);
+
   const stats = useMemo(() => {
-    const visibleStudents = students.filter((student) => student.status !== "Rejected");
+    const visibleStudents = batchStudents.filter((student) => student.status !== "Rejected");
     return {
       totalStudents: visibleStudents.length,
       activeThisWeek: visibleStudents.filter((student) => student.lastLogin !== "-").length,
-      pendingApprovals: registrations.length,
+      pendingApprovals: batchRegistrations.length,
       advancedStudents: visibleStudents.filter((student) => student.status === "Advanced").length,
       newUsers: visibleStudents.filter((student) => student.status === "New User").length
     };
-  }, [registrations.length, students]);
+  }, [batchRegistrations.length, batchStudents]);
 
   const value: AdminStore = {
-    students,
-    registrations,
+    students: batchStudents,
+    registrations: batchRegistrations,
     activityLog,
     stats,
     approveRegistration,

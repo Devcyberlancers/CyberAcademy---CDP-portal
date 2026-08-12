@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Bell, CheckCheck, ChevronDown, LogOut, Menu, Search, Trash2, UserRound, X } from "lucide-react";
 import { clearAdminToken, getAdminDashboard, getAdminProfile, listAdminJobs, listCoursesFromDb, listStudentsFromDb, type AdminJob, type DbCourse, type DbStudent } from "@/lib/admin-api";
 import { studentPortalUrl } from "@/lib/urls";
+import { AdminBatchSelector } from "./AdminBatchSelector";
 
 type AdminTopbarProps = { title: string; subtitle?: string; onMenuClick?: () => void };
 type Profile = { email: string; name: string; role: string };
@@ -76,6 +77,7 @@ export function AdminTopbar({ title, subtitle, onMenuClick }: AdminTopbarProps) 
     <div className="relative flex min-h-16 items-center gap-3 px-3 py-3 sm:gap-5 sm:px-5 md:min-h-20 md:px-8">
       <button type="button" onClick={onMenuClick} className="grid h-10 w-10 shrink-0 place-items-center rounded-md border border-portal-line text-slate-600 md:hidden" aria-label="Open navigation"><Menu size={22} /></button>
       <div className="min-w-0 flex-1"><h1 className="truncate text-lg font-bold text-slate-950 sm:text-xl">{title}</h1>{subtitle ? <p className="mt-1 truncate text-sm text-slate-500">{subtitle}</p> : null}</div>
+      <AdminBatchSelector />
       <form onSubmit={(event) => { event.preventDefault(); setSearchOpen(true); }} className="relative hidden lg:block">
         <div className="flex h-11 w-[300px] items-center gap-2 rounded-md border border-portal-line px-3 text-slate-500"><input value={search} onFocus={() => setSearchOpen(true)} onChange={(event) => { setSearch(event.target.value); setSearchOpen(true); }} className="w-full bg-transparent text-sm outline-none" placeholder="Search students, courses, jobs..." /><button type="submit" aria-label="Search"><Search size={19} /></button></div>
         {searchOpen && search.trim() ? <div className="absolute right-0 top-12 z-50 max-h-96 w-[380px] overflow-y-auto rounded-xl border border-portal-line bg-white p-2 shadow-2xl">

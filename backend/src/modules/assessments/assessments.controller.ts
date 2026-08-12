@@ -22,10 +22,10 @@ export class AdminAssessmentsController {
   constructor(private readonly service: AssessmentsService) {}
   @Get() all() { return this.service.nativeAssessments(); }
   @Post() upsert(@Body() dto: NativeAssessmentDto) { return this.service.upsertNative(dto); }
-  @Get('standalone') standalone() { return this.service.getCollection('standalone'); }
-  @Put('standalone') saveStandalone(@Body() dto: AssessmentCollectionDto) { return this.service.saveCollection('standalone', dto.assessments); }
-  @Get('courses/:key') course(@Param('key') key: string) { return this.service.getCollection('course', key); }
-  @Put('courses/:key') saveCourse(@Param('key') key: string, @Body() dto: AssessmentCollectionDto) { return this.service.saveCollection('course', dto.assessments, key); }
+  @Get('standalone') standalone(@Query('batch') batch?: string) { return this.service.getCollection('standalone', undefined, batch); }
+  @Put('standalone') saveStandalone(@Body() dto: AssessmentCollectionDto, @Query('batch') batch?: string) { return this.service.saveCollection('standalone', dto.assessments, undefined, batch); }
+  @Get('courses/:key') course(@Param('key') key: string, @Query('batch') batch?: string) { return this.service.getCollection('course', key, batch); }
+  @Put('courses/:key') saveCourse(@Param('key') key: string, @Body() dto: AssessmentCollectionDto, @Query('batch') batch?: string) { return this.service.saveCollection('course', dto.assessments, key, batch); }
 }
 
 @Controller('api/assignments')
@@ -54,8 +54,8 @@ export class AssessmentsController {
   adminAttempts(
     @Query('assignment_id') assignment?: string, @Query('status') status?: string,
     @Query('student_email') email?: string, @Query('page') page = '1', @Query('page_size') size = '50',
-    @Query('scope') scope?: string,
-  ) { return this.service.adminAttempts({ assignment, status, email, scope, page: Number(page), size: Number(size) }); }
+    @Query('scope') scope?: string, @Query('batch') batch?: string,
+  ) { return this.service.adminAttempts({ assignment, status, email, scope, batch, page: Number(page), size: Number(size) }); }
 
   @Get('admin/attempts/:id')
   @UseGuards(JwtAuthGuard, RolesGuard) @Roles(...ADMIN_ROLES)

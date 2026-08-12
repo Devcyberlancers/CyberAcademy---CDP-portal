@@ -67,18 +67,24 @@ export class StudentPortalService {
     };
   }
 
-  async availableJobsCount(extra: Prisma.jobsWhereInput = {}) {
+  private async batchJobWhere(email?: string): Promise<Prisma.jobsWhereInput> {
+    if (!email) return {};
+    const profile = await this.prisma.student_profiles.findUnique({ where: { email: email.toLowerCase() }, select: { batch: true } });
+    return profile ? { platform: `admin:${profile.batch}` } : { id: -1 };
+  }
+
+  async availableJobsCount(extra: Prisma.jobsWhereInput = {}, email?: string) {
     const rows = await this.prisma.jobs.findMany({
-      where: this.availableJobsWhere(extra),
+      where: { AND: [this.availableJobsWhere(extra), await this.batchJobWhere(email)] },
       distinct: ['apply_url'],
       select: { apply_url: true },
     });
     return rows.length;
   }
 
-  async jobs(limit?: number, extra: Prisma.jobsWhereInput = {}) {
+  async jobs(limit?: number, extra: Prisma.jobsWhereInput = {}, email?: string) {
     const rows = await this.prisma.jobs.findMany({
-      where: this.availableJobsWhere(extra),
+      where: { AND: [this.availableJobsWhere(extra), await this.batchJobWhere(email)] },
       orderBy: [{ updated_at: 'desc' }, { id: 'desc' }],
       distinct: ['apply_url'],
       take: this.safeLimit(limit),
@@ -313,6 +319,7 @@ export class StudentPortalService {
   }
 
   async courses(status = 'active', email?: string) {
+    const profile = email ? await this.prisma.student_profiles.findUnique({ where: { email: email.toLowerCase() }, select: { batch: true } }) : null;
     const rows = await this.prisma.courses.findMany({
       where: status ? { status } : {},
       orderBy: { updated_at: 'desc' },
@@ -322,7 +329,8 @@ export class StudentPortalService {
         icon: true, color: true, metadata_json: true, updated_at: true,
       },
     });
-    if (!email) return rows.map(({ metadata_json, ...row }) => ({ ...row, metadata: metadata_json ?? {} }));
+    const scopedRows = profile ? rows.filter((row) => (row.metadata_json as any)?.target_batch === profile.batch) : rows;
+    if (!email) return scopedRows.map(({ metadata_json, ...row }) => ({ ...row, metadata: metadata_json ?? {} }));
     const [moduleSnapshots, progressSnapshots] = await Promise.all([
       this.prisma.admin_snapshots.findMany({ where: { key: { startsWith: 'course-editor-modules-' } } }),
       this.prisma.admin_snapshots.findMany({ where: { key: { endsWith: `:${email.toLowerCase()}` }, } }),
@@ -358,7 +366,7 @@ export class StudentPortalService {
         completedCount.set(courseId, completed);
       } catch { /* ignore malformed progress */ }
     }
-    return rows.map(({ metadata_json, ...row }) => {
+    return scopedRows.map(({ metadata_json, ...row }) => {
       const total = moduleCount.get(row.id) ?? 0;
       const completed = completedCount.get(row.id) ?? 0;
       return {
@@ -434,6 +442,8 @@ export class StudentPortalService {
     if (!course || !['active', 'published'].includes(course.status)) {
       throw new NotFoundException('Published course not found');
     }
+    const profile = await this.prisma.student_profiles.findUnique({ where: { email: email.toLowerCase() }, select: { batch: true } });
+    if (!profile || (course.metadata_json as any)?.target_batch !== profile.batch) throw new NotFoundException('Course not found in student batch');
     const [modules, banner, settings, assessments, progress, assessmentAttempts] = await Promise.all([
       this.snapshot(`course-editor-modules-${courseId}-v2`, []),
       this.snapshot(`course-editor-banner-${courseId}-v1`, {}),
@@ -641,8 +651,10 @@ export class StudentPortalService {
     return this.profileOut(updated);
   }
 
-  async courseAssessments(course: string) {
-    const row = await this.prisma.assessment_collections.findUnique({ where: { storage_key: `course:${course}` } });
+  async courseAssessments(course: string, email: string) {
+    const profile = await this.prisma.student_profiles.findUnique({ where: { email: email.toLowerCase() }, select: { batch: true } });
+    if (!profile) throw new NotFoundException('Student profile not found');
+    const row = await this.prisma.assessment_collections.findUnique({ where: { storage_key: `course:${course}:batch:${profile.batch}` } });
     if (!row) throw new NotFoundException('Course assessments not found');
     return { course_id: course, assessments: JSON.parse(row.payload) };
   }

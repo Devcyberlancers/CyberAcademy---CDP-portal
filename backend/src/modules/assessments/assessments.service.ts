@@ -13,16 +13,21 @@ import { NativeAssessmentDto } from './dto/assessment.dto';
 export class AssessmentsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private async collection(kind: string, course?: string) {
-    const storage_key = course ? `${kind}:${course}` : kind;
+  private collectionKey(kind: string, course?: string, batch?: string) {
+    const scope = batch?.trim() || '2026 A';
+    return `${course ? `${kind}:${course}` : kind}:batch:${scope}`;
+  }
+
+  private async collection(kind: string, course?: string, batch?: string) {
+    const storage_key = this.collectionKey(kind, course, batch);
     const row = await this.prisma.assessment_collections.findUnique({ where: { storage_key } });
     if (!row) throw new NotFoundException('Assessment collection not found');
     const value = JSON.parse(row.payload);
     return Array.isArray(value) ? value : [];
   }
 
-  async getCollection(kind: string, course?: string) {
-    return { assessments: await this.collection(kind, course) };
+  async getCollection(kind: string, course?: string, batch?: string) {
+    return { assessments: await this.collection(kind, course, batch) };
   }
 
   private nativeId(course: string, assessment: string) {
@@ -64,11 +69,12 @@ export class AssessmentsService {
     } satisfies Omit<Prisma.assignment_security_settingsUncheckedCreateInput, 'assignment_id'>;
   }
 
-  async saveCollection(kind: 'standalone' | 'course', assessments: any[], course?: string) {
-    const storage_key = course ? `${kind}:${course}` : kind;
+  async saveCollection(kind: 'standalone' | 'course', assessments: any[], course?: string, batch?: string) {
+    const selectedBatch = batch?.trim() || '2026 A';
+    const storage_key = this.collectionKey(kind, course, selectedBatch);
     const courseRow = course && /^\d+$/.test(course) ? await this.prisma.courses.findUnique({ where: { id: Number(course) } }) : null;
     const published = kind === 'standalone' || Boolean(courseRow && ['active', 'published'].includes(courseRow.status));
-    const namespace = course ?? 'standalone';
+    const namespace = `${course ?? 'standalone'}:${selectedBatch}`;
     const ids = assessments.map((item) => this.nativeId(namespace, String(item.id || 'assessment')));
     await this.prisma.$transaction(async (tx) => {
       await tx.assessment_collections.upsert({
@@ -111,9 +117,15 @@ export class AssessmentsService {
   }
 
   async assignments(email?: string, requestedAssignmentId?: string) {
-    const collection = await this.prisma.assessment_collections.findUnique({ where: { storage_key: 'standalone' } });
+    const profile = email ? await this.prisma.student_profiles.findUnique({ where: { email: email.toLowerCase() }, select: { batch: true } }) : null;
+    const batch = profile?.batch ?? '2026 A';
+    const collection = await this.prisma.assessment_collections.findUnique({ where: { storage_key: this.collectionKey('standalone', undefined, batch) } });
     const current = collection ? JSON.parse(collection.payload) : [];
-    const currentIds = Array.isArray(current) ? current.map((item: any) => this.nativeId('standalone', String(item.id || 'assessment'))) : [];
+    const currentIds = Array.isArray(current) ? current.flatMap((item: any) => {
+      const id = String(item.id || 'assessment');
+      const scoped = this.nativeId(`standalone:${batch}`, id);
+      return batch === '2026 A' ? [scoped, this.nativeId('standalone', id)] : [scoped];
+    }) : [];
     const assignmentIds = requestedAssignmentId ? [requestedAssignmentId] : currentIds;
     const rows = await this.prisma.assignment_security_settings.findMany({
       where: { assignment_id: { in: assignmentIds }, published: true, active: true },
@@ -293,20 +305,26 @@ export class AssessmentsService {
     });
   }
 
-  async adminAttempts(filters: { assignment?: string; status?: string; email?: string; scope?: string; page: number; size: number }) {
+  async adminAttempts(filters: { assignment?: string; status?: string; email?: string; scope?: string; batch?: string; page: number; size: number }) {
     let scopedAssignmentIds: string[] | undefined;
     if (filters.scope === 'standalone') {
-      const collection = await this.prisma.assessment_collections.findUnique({ where: { storage_key: 'standalone' } });
+      const collection = await this.prisma.assessment_collections.findUnique({ where: { storage_key: this.collectionKey('standalone', undefined, filters.batch) } });
       const current = collection ? JSON.parse(collection.payload) : [];
       scopedAssignmentIds = Array.isArray(current)
-        ? current.map((item: any) => this.nativeId('standalone', String(item.id || 'assessment')))
+        ? current.flatMap((item: any) => {
+          const id = String(item.id || 'assessment');
+          const batch = filters.batch?.trim() || '2026 A';
+          const scoped = this.nativeId(`standalone:${batch}`, id);
+          return batch === '2026 A' ? [scoped, this.nativeId('standalone', id)] : [scoped];
+        })
         : [];
     }
+    const batchEmails = filters.batch ? (await this.prisma.student_profiles.findMany({ where: { batch: filters.batch.trim() }, select: { email: true } })).map((profile) => profile.email.toLowerCase()) : undefined;
     const where: Prisma.assignment_attemptsWhereInput = {
       ...(filters.assignment ? { assignment_id: filters.assignment } : {}),
       ...(scopedAssignmentIds ? { assignment_id: { in: scopedAssignmentIds } } : {}),
       ...(filters.status ? { status: filters.status as assignment_attempts_status } : {}),
-      ...(filters.email ? { student_email: { contains: filters.email } } : {}),
+      ...(filters.email ? { student_email: { contains: filters.email } } : batchEmails ? { student_email: { in: batchEmails } } : {}),
     };
     const [total, rows] = await Promise.all([
       this.prisma.assignment_attempts.count({ where }),

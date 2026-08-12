@@ -7,7 +7,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { AdminService } from './admin.service';
 import {
-  AccessDto, ApplicationDecisionDto, CourseDto, JobCreateDto, PortalSettingsDto, SnapshotDto,
+  AccessDto, AdminBatchDto, ApplicationDecisionDto, CourseDto, JobCreateDto, PortalSettingsDto, SnapshotDto,
   CredentialSendDto, StudentAccountDto, StudentCourseDto, StudentMessageDto, StudentReminderDto,
   LegacyStudentLoginDto,
 } from './dto/admin.dto';
@@ -20,29 +20,37 @@ const ADMIN_ROLES = ['admin', 'super_admin', 'course_admin', 'placement_admin', 
 export class AdminController {
   constructor(private readonly service: AdminService) {}
 
-  @Get('access/global') globalAccess() { return this.service.getGlobalAccess(); }
-  @Put('access/global') setGlobal(@Body() dto: AccessDto, @CurrentUser() user: AuthenticatedUser) {
-    return this.service.setGlobalAccess(dto, user.sub);
+  @Get('batches') batches(@CurrentUser() user: AuthenticatedUser) { return this.service.batchContext(user.sub); }
+  @Post('batches') createBatch(@Body() dto: AdminBatchDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.service.createBatch(dto.name, user.sub);
+  }
+  @Put('batches/selection') selectBatch(@Body() dto: AdminBatchDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.service.selectBatch(dto.name, user.sub);
+  }
+
+  @Get('access/global') globalAccess(@Query('batch') batch?: string) { return this.service.getGlobalAccess(batch); }
+  @Put('access/global') setGlobal(@Body() dto: AccessDto, @CurrentUser() user: AuthenticatedUser, @Query('batch') batch?: string) {
+    return this.service.setGlobalAccess(dto, user.sub, batch);
   }
   @Get('access/students/:id') studentAccess(@Param('id', ParseIntPipe) id: number) { return this.service.getStudentAccess(id); }
   @Put('access/students/:id') setStudentAccess(
     @Param('id', ParseIntPipe) id: number, @Body() dto: AccessDto, @CurrentUser() user: AuthenticatedUser,
   ) { return this.service.setStudentAccess(id, dto, user.sub); }
 
-  @Get('courses') courses() { return this.service.courses(); }
-  @Get('courses/overview') courseOverview() { return this.service.courseOverview(); }
-  @Get('courses/:id/students') courseStudents(@Param('id', ParseIntPipe) id: number) {
-    return this.service.courseStudents(id);
+  @Get('courses') courses(@Query('batch') batch?: string) { return this.service.courses(batch); }
+  @Get('courses/overview') courseOverview(@Query('batch') batch?: string) { return this.service.courseOverview(batch); }
+  @Get('courses/:id/students') courseStudents(@Param('id', ParseIntPipe) id: number, @Query('batch') batch?: string) {
+    return this.service.courseStudents(id, batch);
   }
-  @Post('courses') createCourse(@Body() dto: CourseDto) { return this.service.createCourse(dto); }
+  @Post('courses') createCourse(@Body() dto: CourseDto, @Query('batch') batch?: string) { return this.service.createCourse(dto, batch); }
   @Post('courses/:id/publish') publish(@Param('id', ParseIntPipe) id: number) { return this.service.setCourseStatus(id, 'active'); }
   @Post('courses/:id/draft') draft(@Param('id', ParseIntPipe) id: number) { return this.service.setCourseStatus(id, 'draft'); }
-  @Put('courses/:id') update(@Param('id', ParseIntPipe) id: number, @Body() dto: CourseDto) { return this.service.updateCourse(id, dto); }
+  @Put('courses/:id') update(@Param('id', ParseIntPipe) id: number, @Body() dto: CourseDto, @Query('batch') batch?: string) { return this.service.updateCourse(id, dto, batch); }
   @Delete('courses/:id') remove(@Param('id', ParseIntPipe) id: number) { return this.service.deleteCourse(id); }
 
-  @Get('dashboard') dashboard() { return this.service.dashboard(); }
-  @Get('dashboard/stats') dashboardStats() { return this.service.dashboardStats(); }
-  @Get('dashboard/activity') dashboardActivity() { return this.service.dashboardActivity(); }
+  @Get('dashboard') dashboard(@Query('batch') batch?: string) { return this.service.dashboard(batch); }
+  @Get('dashboard/stats') dashboardStats(@Query('batch') batch?: string) { return this.service.dashboardStats(batch); }
+  @Get('dashboard/activity') dashboardActivity(@Query('batch') batch?: string) { return this.service.dashboardActivity(batch); }
 
   @Get('settings') settings() { return this.service.getSettings(); }
   @Get('settings/overview') settingsOverview() { return this.service.settingsOverview(); }
@@ -80,10 +88,10 @@ export class AdminController {
     return { section: 'nerd', synced: false, message: 'NERD integration is not configured yet.' };
   }
 
-  @Get('jobs') jobs() { return this.service.adminJobs(); }
-  @Get('jobs/overview') jobsOverview() { return this.service.jobsOverview(); }
-  @Get('jobs/applications') applications() { return this.service.applicationActivity(); }
-  @Post('jobs') createJob(@Body() dto: JobCreateDto) { return this.service.createJob(dto); }
+  @Get('jobs') jobs(@Query('batch') batch?: string) { return this.service.adminJobs(batch); }
+  @Get('jobs/overview') jobsOverview(@Query('batch') batch?: string) { return this.service.jobsOverview(batch); }
+  @Get('jobs/applications') applications(@Query('batch') batch?: string) { return this.service.applicationActivity(batch); }
+  @Post('jobs') createJob(@Body() dto: JobCreateDto, @Query('batch') batch?: string) { return this.service.createJob(dto, batch); }
   @Post('jobs/scrape') scrapeJobs(@Body() urls: string[]) { return this.service.scrapeJobs(urls); }
   @Post('jobs/applications/:id/approve') approve(
     @Param('id', ParseIntPipe) id: number, @Body() dto: ApplicationDecisionDto,
@@ -92,11 +100,11 @@ export class AdminController {
     @Param('id', ParseIntPipe) id: number, @Body() dto: ApplicationDecisionDto,
   ) { return this.service.decideApplication(id, 'rejected', dto.review_note); }
 
-  @Get('students') students() { return this.service.students(); }
-  @Get('students/overview') studentsOverview() { return this.service.studentsOverview(); }
-  @Get('students/:id/profile') studentProfile(@Param('id', ParseIntPipe) id: number) { return this.service.studentProfile(id); }
-  @Get('students/:id/learning') studentLearning(@Param('id', ParseIntPipe) id: number) {
-    return this.service.studentLearning(id);
+  @Get('students') students(@Query('batch') batch?: string) { return this.service.students(batch); }
+  @Get('students/overview') studentsOverview(@Query('batch') batch?: string) { return this.service.studentsOverview(batch); }
+  @Get('students/:id/profile') studentProfile(@Param('id', ParseIntPipe) id: number, @Query('batch') batch?: string) { return this.service.studentProfile(id, batch); }
+  @Get('students/:id/learning') studentLearning(@Param('id', ParseIntPipe) id: number, @Query('batch') batch?: string) {
+    return this.service.studentLearning(id, batch);
   }
   @Post('students/accounts') createStudent(@Body() dto: StudentAccountDto, @CurrentUser() user: AuthenticatedUser) { return this.service.createStudent(dto, user.sub); }
   @Delete('students/accounts/:id') deleteStudent(@Param('id', ParseIntPipe) id: number, @Query('confirm') confirmation: string, @CurrentUser() user: AuthenticatedUser) { return this.service.deleteStudent(id, confirmation || '', user.sub); }

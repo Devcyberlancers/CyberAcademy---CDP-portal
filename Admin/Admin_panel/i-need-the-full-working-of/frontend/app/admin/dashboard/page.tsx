@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Activity, BookOpen, BriefcaseBusiness, CheckCircle2, ClipboardList, Download, Mail, ShieldAlert, Upload, UserPlus, Users } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
+import { useAdminBatch } from "@/lib/admin-batch-context";
 import { SectionCard } from "@/components/admin/SectionCard";
 import { StatCard } from "@/components/admin/StatCard";
 import { getAdminDashboard, getAdminDashboardActivity, listAdminJobs, listJobApplicationActivity, listStudentsFromDb, type AdminJobApplicationActivity, type DbStudent } from "@/lib/admin-api";
@@ -251,6 +252,7 @@ type DashboardAccountCreatorProps = {
 };
 
 function DashboardAccountCreator({ registrations, selectedId, onSelect, registration, onAfterCreate, onCreateNew, onCreate, onSend, onCancel }: DashboardAccountCreatorProps) {
+  const { batches, selectedBatch } = useAdminBatch();
   const fixedStorageKey = "student-account-fixed-fields-v1";
   const defaultPortalLink = process.env.NEXT_PUBLIC_STUDENT_PORTAL_LINK ?? "http://localhost:3000";
   const defaultSenderEmail = process.env.NEXT_PUBLIC_DEFAULT_SENDER_EMAIL ?? "";
@@ -261,7 +263,7 @@ function DashboardAccountCreator({ registrations, selectedId, onSelect, registra
   const [phone, setPhone] = useState("");
   const [degree, setDegree] = useState("");
   const [branch, setBranch] = useState("");
-  const [batch, setBatch] = useState("2026 A");
+  const [batch, setBatch] = useState(selectedBatch || "2026 A");
   const [personalEmail, setPersonalEmail] = useState("");
   const [credentialEmail, setCredentialEmail] = useState(registration?.credentialEmail ?? "");
   const [senderEmail, setSenderEmail] = useState(registration?.senderEmail ?? defaultSenderEmail);
@@ -348,7 +350,7 @@ function DashboardAccountCreator({ registrations, selectedId, onSelect, registra
     setPhone("");
     setDegree("");
     setBranch("");
-    setBatch("2026 A");
+    setBatch(selectedBatch || "2026 A");
     setPersonalEmail("");
     setCredentialEmail("");
     setUsername("");
@@ -416,8 +418,8 @@ function DashboardAccountCreator({ registrations, selectedId, onSelect, registra
             </label>
             <label>
               <span className="mb-1 block font-bold text-slate-600">Batch *</span>
-              <input value={batch} onChange={(event) => setBatch(event.target.value)} onBlur={() => setBatch((value) => value.trim().replace(/\s+/g, " "))} className="h-9 w-full rounded-md border border-portal-line px-3 outline-none focus:border-portal-blue" placeholder="e.g. 2026 A" />
-              <span className="mt-1 block text-[11px] text-slate-500">Four-digit year + editable label (letters, words, or numbers).</span>
+              <select value={batch} onChange={(event) => setBatch(event.target.value)} className="h-9 w-full rounded-md border border-portal-line bg-white px-3 outline-none focus:border-portal-blue">{batches.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select>
+              <span className="mt-1 block text-[11px] text-slate-500">Create additional batches from Select Batch in the topbar.</span>
             </label>
             <label>
               <span className="mb-1 block font-bold text-slate-600">Degree</span>
@@ -565,11 +567,12 @@ function parseStudentCsv(text: string): string[][] {
 function BulkCsvAccountCreator({ onCreate }: {
   onCreate: DashboardAccountCreatorProps["onCreateNew"];
 }) {
+  const { batches, selectedBatch } = useAdminBatch();
   const [rows, setRows] = useState<CsvStudentRow[]>([]);
   const [previewIndex, setPreviewIndex] = useState(0);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
-  const [bulkBatch, setBulkBatch] = useState("2026 A");
+  const [bulkBatch, setBulkBatch] = useState(selectedBatch || "2026 A");
   const portalLink = process.env.NEXT_PUBLIC_STUDENT_PORTAL_LINK ?? "http://localhost:3000";
   const preview = rows[previewIndex] ?? rows[0];
 
@@ -630,16 +633,12 @@ function BulkCsvAccountCreator({ onCreate }: {
       </div>
       <label className="mt-4 block max-w-md">
         <span className="mb-1 block text-xs font-bold text-slate-700">Batch for every imported student *</span>
-        <input value={bulkBatch} onChange={(event) => {
+        <select value={bulkBatch} onChange={(event) => {
           const next = event.target.value;
           setBulkBatch(next);
           setRows((current) => current.map((row) => ({ ...row, batch: next.trim().replace(/\s+/g, " ") })));
-        }} onBlur={() => {
-          const normalized = bulkBatch.trim().replace(/\s+/g, " ");
-          setBulkBatch(normalized);
-          setRows((current) => current.map((row) => ({ ...row, batch: normalized })));
-        }} className="h-10 w-full rounded-md border border-portal-line bg-white px-3 text-sm outline-none focus:border-portal-blue" placeholder="2026 A" />
-        <span className="mt-1 block text-xs text-slate-500">The year is required; the label can be letters, words, or numbers.</span>
+        }} className="h-10 w-full rounded-md border border-portal-line bg-white px-3 text-sm outline-none focus:border-portal-blue">{batches.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select>
+        <span className="mt-1 block text-xs text-slate-500">Every row will be assigned to this stored batch.</span>
       </label>
       <label className="mt-4 flex min-h-28 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-blue-200 bg-blue-50 p-4 text-center">
         <Upload size={25} className="text-portal-blue" /><span className="mt-2 font-bold text-slate-800">Choose student CSV</span>

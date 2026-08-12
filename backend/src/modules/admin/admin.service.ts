@@ -23,6 +23,73 @@ export class AdminService {
     private readonly config: ConfigService,
   ) {}
 
+  private normalizeBatch(value?: string) {
+    const normalized = value?.trim().replace(/\s+/g, ' ') ?? '';
+    return /^\d{4}\s+[A-Za-z0-9][A-Za-z0-9 _-]*$/.test(normalized) ? normalized : undefined;
+  }
+
+  private batchSelectionKey(actor: string) {
+    return `admin-batch-selection:${actor.trim().toLowerCase()}`.slice(0, 180);
+  }
+
+  private async batchEmails(batch?: string) {
+    const selected = this.normalizeBatch(batch);
+    if (!selected) return undefined;
+    const profiles = await this.prisma.student_profiles.findMany({ where: { batch: selected }, select: { email: true } });
+    return profiles.map((profile) => profile.email.toLowerCase());
+  }
+
+  async batchContext(actor: string) {
+    const [catalogRow, selectionRow, grouped] = await Promise.all([
+      this.prisma.admin_snapshots.findUnique({ where: { key: 'admin-batch-catalog-v1' } }),
+      this.prisma.admin_snapshots.findUnique({ where: { key: this.batchSelectionKey(actor) } }),
+      this.prisma.student_profiles.groupBy({ by: ['batch'], _count: { _all: true }, orderBy: { batch: 'asc' } }),
+    ]);
+    let catalog: Array<{ name: string; created_at?: string; created_by?: string }> = [];
+    let selected = '';
+    try { const value = catalogRow ? JSON.parse(catalogRow.payload) : []; catalog = Array.isArray(value) ? value : []; } catch { catalog = []; }
+    try { selected = selectionRow ? String(JSON.parse(selectionRow.payload)?.batch ?? '') : ''; } catch { selected = ''; }
+    const counts = new Map(grouped.filter((item) => Boolean(item.batch)).map((item) => [item.batch, item._count._all]));
+    const names = new Set(['2026 A', ...catalog.map((item) => item.name), ...counts.keys()]);
+    const batches = [...names].filter((name) => this.normalizeBatch(name)).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).map((name) => {
+      const saved = catalog.find((item) => item.name === name);
+      return { name, student_count: counts.get(name) ?? 0, created_at: saved?.created_at ?? null, created_by: saved?.created_by ?? null };
+    });
+    if (!names.has(selected)) selected = names.has('2026 A') ? '2026 A' : batches[0]?.name ?? '';
+    return { selected_batch: selected, batches };
+  }
+
+  async createBatch(name: string, actor: string) {
+    const normalized = this.normalizeBatch(name);
+    if (!normalized) throw new UnprocessableEntityException('Batch must start with a four-digit year followed by a label, for example 2026 A');
+    const row = await this.prisma.admin_snapshots.findUnique({ where: { key: 'admin-batch-catalog-v1' } });
+    let catalog: Array<{ name: string; created_at: string; created_by: string }> = [];
+    try { const value = row ? JSON.parse(row.payload) : []; catalog = Array.isArray(value) ? value : []; } catch { catalog = []; }
+    if (!catalog.some((item) => item.name.toLowerCase() === normalized.toLowerCase())) {
+      catalog.push({ name: normalized, created_at: new Date().toISOString(), created_by: actor });
+      await this.prisma.admin_snapshots.upsert({
+        where: { key: 'admin-batch-catalog-v1' },
+        create: { key: 'admin-batch-catalog-v1', payload: JSON.stringify(catalog), updated_by: actor, updated_at: new Date() },
+        update: { payload: JSON.stringify(catalog), updated_by: actor, updated_at: new Date() },
+      });
+    }
+    await this.selectBatch(normalized, actor);
+    return this.batchContext(actor);
+  }
+
+  async selectBatch(name: string, actor: string) {
+    const normalized = this.normalizeBatch(name);
+    if (!normalized) throw new UnprocessableEntityException('Invalid batch name');
+    const context = await this.batchContext(actor);
+    if (!context.batches.some((batch) => batch.name === normalized)) throw new NotFoundException('Batch not found');
+    await this.prisma.admin_snapshots.upsert({
+      where: { key: this.batchSelectionKey(actor) },
+      create: { key: this.batchSelectionKey(actor), payload: JSON.stringify({ batch: normalized }), updated_by: actor, updated_at: new Date() },
+      update: { payload: JSON.stringify({ batch: normalized }), updated_by: actor, updated_at: new Date() },
+    });
+    return { selected_batch: normalized };
+  }
+
   private accessOut(row: any) {
     return {
       courses_enabled: Boolean(row?.courses_enabled),
@@ -31,28 +98,33 @@ export class AdminService {
     };
   }
 
-  private globalAccess() {
+  private globalAccess(batch?: string) {
+    const selected = this.normalizeBatch(batch);
+    const scopeKey = selected ? `global:batch:${selected.toLowerCase()}` : 'global';
     return this.prisma.portal_access_settings.upsert({
-      where: { scope_key: 'global' },
+      where: { scope_key: scopeKey },
       create: {
-        scope_key: 'global', courses_enabled: false, assessments_enabled: false,
+        scope_key: scopeKey, courses_enabled: false, assessments_enabled: false,
         jobs_enabled: false, updated_by: '', updated_at: new Date(),
       },
       update: {},
     });
   }
 
-  async getGlobalAccess() { return this.accessOut(await this.globalAccess()); }
+  async getGlobalAccess(batch?: string) { return this.accessOut(await this.globalAccess(batch)); }
 
-  async setGlobalAccess(dto: AccessDto, actor: string) {
+  async setGlobalAccess(dto: AccessDto, actor: string, batch?: string) {
+    const selected = this.normalizeBatch(batch);
+    const scopeKey = selected ? `global:batch:${selected.toLowerCase()}` : 'global';
+    const emails = await this.batchEmails(batch);
     const row = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.portal_access_settings.upsert({
-        where: { scope_key: 'global' },
-        create: { scope_key: 'global', ...dto, updated_by: actor, updated_at: new Date() },
+        where: { scope_key: scopeKey },
+        create: { scope_key: scopeKey, ...dto, updated_by: actor, updated_at: new Date() },
         update: { ...dto, updated_by: actor, updated_at: new Date() },
       });
       await tx.portal_access_settings.updateMany({
-        where: { scope_key: { not: 'global' } },
+        where: selected ? { scope_key: { in: emails ?? [] } } : { scope_key: { not: 'global' } },
         data: { ...dto, updated_by: actor, updated_at: new Date() },
       });
       return updated;
@@ -92,26 +164,28 @@ export class AdminService {
     };
   }
 
-  async courses() {
+  async courses(batch?: string) {
     const rows = await this.prisma.courses.findMany({ orderBy: { updated_at: 'desc' } });
-    return rows.map((row) => this.courseOut(row));
+    const selected = this.normalizeBatch(batch);
+    return rows.filter((row) => !selected || (row.metadata_json as any)?.target_batch === selected).map((row) => this.courseOut(row));
   }
 
-  async courseOverview() {
-    const [total, published, drafts] = await Promise.all([
-      this.prisma.courses.count(),
-      this.prisma.courses.count({ where: { status: { in: ['active', 'published'] } } }),
-      this.prisma.courses.count({ where: { status: 'draft' } }),
-    ]);
+  async courseOverview(batch?: string) {
+    const selected = this.normalizeBatch(batch);
+    const rows = await this.prisma.courses.findMany({ select: { status: true, metadata_json: true } });
+    const scoped = rows.filter((row) => !selected || (row.metadata_json as any)?.target_batch === selected);
+    const total = scoped.length;
+    const published = scoped.filter((row) => ['active', 'published'].includes(row.status)).length;
+    const drafts = scoped.filter((row) => row.status === 'draft').length;
     return { section: 'courses', summary: { total_courses: total, published, drafts } };
   }
 
-  async courseStudents(courseId: number) {
+  async courseStudents(courseId: number, batch?: string) {
     const course = await this.prisma.courses.findUnique({ where: { id: courseId } });
     if (!course) throw new NotFoundException('Course not found');
     const prefix = `course:${courseId}:`;
     const [profiles, academics, settings, attempts, moduleSnapshot] = await Promise.all([
-      this.prisma.student_profiles.findMany({ orderBy: { full_name: 'asc' } }),
+      this.prisma.student_profiles.findMany({ where: this.normalizeBatch(batch) ? { batch: this.normalizeBatch(batch) } : {}, orderBy: { full_name: 'asc' } }),
       this.prisma.students.findMany({
         include: {
           users: { select: { email: true } },
@@ -187,18 +261,19 @@ export class AdminService {
     return { course: this.courseOut(course), total: rows.length, students: rows };
   }
 
-  async createCourse(dto: CourseDto) {
+  async createCourse(dto: CourseDto, batch?: string) {
     const title = dto.title.trim();
     if (await this.prisma.courses.findUnique({ where: { title } })) {
       throw new ConflictException('A course with this title already exists');
     }
     const now = new Date();
     const heading = dto.short_description ?? dto.heading ?? '';
-    const metadata: Prisma.InputJsonValue = dto.metadata ?? {
+    const selectedBatch = this.normalizeBatch(batch) ?? '2026 A';
+    const metadata: Prisma.InputJsonValue = { ...(dto.metadata ?? {
       description: dto.description ?? '', short_description: dto.short_description,
       instructor: dto.instructor, duration: dto.duration ?? '', language: dto.language,
       banner_url: dto.banner_url ?? '', visibility: dto.visibility,
-    };
+    }), target_batch: selectedBatch };
     const row = await this.prisma.courses.create({
       data: {
         title, heading: heading.trim() || title, category: dto.category.trim(),
@@ -234,7 +309,7 @@ export class AdminService {
     return { course_id: courseId, status };
   }
 
-  async updateCourse(courseId: number, dto: CourseDto) {
+  async updateCourse(courseId: number, dto: CourseDto, batch?: string) {
     const current = await this.prisma.courses.findUnique({ where: { id: courseId } });
     if (!current) throw new NotFoundException('Course not found');
     const title = dto.title.trim();
@@ -243,10 +318,10 @@ export class AdminService {
     const old = (current.metadata_json && typeof current.metadata_json === 'object' && !Array.isArray(current.metadata_json))
       ? current.metadata_json as Prisma.JsonObject : {};
     const heading = dto.short_description ?? dto.heading ?? current.heading;
-    const metadata: Prisma.InputJsonValue = dto.metadata ?? {
+    const metadata: Prisma.InputJsonValue = { ...(dto.metadata ?? {
       ...old, description: dto.description ?? '', short_description: dto.short_description,
       instructor: dto.instructor, duration: dto.duration ?? '', visibility: dto.visibility,
-    };
+    }), target_batch: this.normalizeBatch(batch) ?? String(old.target_batch ?? '2026 A') };
     const row = await this.prisma.courses.update({
       where: { id: courseId },
       data: {
@@ -263,12 +338,14 @@ export class AdminService {
     return { deleted: true };
   }
 
-  async dashboard() {
+  async dashboard(batch?: string) {
+    const selectedBatch = this.normalizeBatch(batch);
+    const profileWhere = selectedBatch ? { batch: selectedBatch } : {};
     const [totalStudents, openJobs, publishedCourses, approvals] = await Promise.all([
-      this.prisma.student_profiles.count(),
+      this.prisma.student_profiles.count({ where: profileWhere }),
       this.prisma.jobs.count(),
       this.prisma.courses.count(),
-      this.prisma.student_profiles.count({ where: { status: { in: ['Completed', 'Approval Pending by Admin'] } } }),
+      this.prisma.student_profiles.count({ where: { ...profileWhere, status: { in: ['Completed', 'Approval Pending by Admin'] } } }),
     ]);
     return {
       section: 'dashboard',
@@ -288,8 +365,8 @@ export class AdminService {
     };
   }
 
-  async dashboardStats() {
-    const data = await this.dashboard();
+  async dashboardStats(batch?: string) {
+    const data = await this.dashboard(batch);
     return {
       total_students: data.stats.total_students, active_this_week: data.stats.active_this_week,
       courses_published: data.stats.courses_published, pending_job_approvals: 0,
@@ -297,7 +374,8 @@ export class AdminService {
     };
   }
 
-  async dashboardActivity() {
+  async dashboardActivity(batch?: string) {
+    const emails = await this.batchEmails(batch);
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
     const counts: number[] = [];
@@ -305,7 +383,7 @@ export class AdminService {
       const start = new Date(today.getTime() - offset * 86_400_000);
       const end = new Date(start.getTime() + 86_400_000);
       counts.push(await this.prisma.applications.count({
-        where: { status: 'applied', applied_at: { gte: start, lt: end } },
+        where: { status: 'applied', applied_at: { gte: start, lt: end }, ...(emails ? { students: { users: { email: { in: emails } } } } : {}) },
       }));
     }
     const peak = Math.max(0, ...counts);
@@ -377,15 +455,17 @@ export class AdminService {
     };
   }
 
-  async adminJobs() {
+  async adminJobs(batch?: string) {
     const rows = await this.prisma.jobs.findMany({ orderBy: { updated_at: 'desc' } });
-    return rows.map((row) => this.adminJobOut(row));
+    const selected = this.normalizeBatch(batch);
+    return rows.filter((row) => !selected || row.platform === `admin:${selected}`).map((row) => this.adminJobOut(row));
   }
 
-  async jobsOverview() {
+  async jobsOverview(batch?: string) {
+    const emails = await this.batchEmails(batch);
     const [total, waiting, refreshStatus] = await Promise.all([
       this.prisma.jobs.count(),
-      this.prisma.applications.count({ where: { status: 'manual_review' } }),
+      this.prisma.applications.count({ where: { status: 'manual_review', ...(emails ? { students: { users: { email: { in: emails } } } } : {}) } }),
       this.prisma.admin_snapshots.findUnique({ where: { key: 'job-refresh-status' } }),
     ]);
     let latest_refresh: Record<string, unknown> | null = null;
@@ -399,9 +479,10 @@ export class AdminService {
     };
   }
 
-  async applicationActivity() {
+  async applicationActivity(batch?: string) {
+    const emails = await this.batchEmails(batch);
     const rows = await this.prisma.applications.findMany({
-      where: { status: 'applied' },
+      where: { status: 'applied', ...(emails ? { students: { users: { email: { in: emails } } } } : {}) },
       include: { students: { include: { users: true } }, jobs: true },
       orderBy: { applied_at: 'desc' },
       take: 1000,
@@ -414,7 +495,7 @@ export class AdminService {
     }));
   }
 
-  async createJob(dto: JobCreateDto) {
+  async createJob(dto: JobCreateDto, batch?: string) {
     const now = new Date();
     const title = (dto.role ?? dto.title ?? '').trim();
     if (!title) throw new UnprocessableEntityException('Job role or title is required');
@@ -425,7 +506,7 @@ export class AdminService {
         employment_type: dto.job_type ?? dto.employment_type ?? '',
         skills: dto.skills?.join(', ') ?? '', description: dto.eligibility ?? dto.description ?? '',
         posted_date: dto.deadline ?? dto.posted_date ?? '', apply_url: dto.source_url ?? dto.apply_url ?? '',
-        company_logo: dto.company_logo ?? null, platform: dto.platform ?? 'admin',
+        company_logo: dto.company_logo ?? null, platform: `admin:${this.normalizeBatch(batch) ?? '2026 A'}`,
         match_score: dto.match_score ?? 0, is_entry_level: dto.is_entry_level ?? true,
         created_at: now, updated_at: now,
       },
@@ -502,20 +583,25 @@ export class AdminService {
     };
   }
 
-  async students() {
-    const rows = await this.prisma.student_profiles.findMany({ orderBy: [{ updated_at: 'desc' }, { id: 'desc' }] });
+  async students(batch?: string) {
+    const selectedBatch = this.normalizeBatch(batch);
+    const rows = await this.prisma.student_profiles.findMany({ where: selectedBatch ? { batch: selectedBatch } : {}, orderBy: [{ updated_at: 'desc' }, { id: 'desc' }] });
     return Promise.all(rows.map(async (row) => { const profile = await this.profileResponse(row); const { resume_data_url: omittedResume, education_details: omittedEducation, ...summary } = profile; void omittedResume; void omittedEducation; return summary; }));
   }
 
-  async studentProfile(id: number) {
+  async studentProfile(id: number, batch?: string) {
     const profile = await this.prisma.student_profiles.findUnique({ where: { id } });
     if (!profile) throw new NotFoundException('Student not found');
+    const selectedBatch = this.normalizeBatch(batch);
+    if (selectedBatch && profile.batch !== selectedBatch) throw new NotFoundException('Student not found in selected batch');
     return this.profileResponse(profile);
   }
 
-  async studentLearning(id: number) {
+  async studentLearning(id: number, batch?: string) {
     const profile = await this.prisma.student_profiles.findUnique({ where: { id } });
     if (!profile) throw new NotFoundException('Student not found');
+    const selectedBatch = this.normalizeBatch(batch);
+    if (selectedBatch && profile.batch !== selectedBatch) throw new NotFoundException('Student not found in selected batch');
     const academic = await this.prisma.students.findFirst({ where: { users: { email: profile.email.toLowerCase() } } });
     const [publishedCourses, assignments, settings, attempts, moduleRows, progressRows] = await Promise.all([
       this.prisma.courses.findMany({
@@ -659,13 +745,16 @@ export class AdminService {
     };
   }
 
-  async studentsOverview() {
+  async studentsOverview(batch?: string) {
+    const selectedBatch = this.normalizeBatch(batch);
+    const profileWhere = selectedBatch ? { batch: selectedBatch } : {};
+    const emails = await this.batchEmails(batch);
     const [total, suspended, waiting, completed, approved] = await Promise.all([
-      this.prisma.student_profiles.count(),
-      this.prisma.users.count({ where: { role: users_role.student, is_active: false } }),
-      this.prisma.student_profiles.count({ where: { status: { in: ['', 'Waiting for Student'] } } }),
-      this.prisma.student_profiles.count({ where: { status: { in: ['Completed', 'Approval Pending by Admin'] } } }),
-      this.prisma.student_profiles.count({ where: { status: 'Approved' } }),
+      this.prisma.student_profiles.count({ where: profileWhere }),
+      this.prisma.users.count({ where: { role: users_role.student, is_active: false, ...(emails ? { email: { in: emails } } : {}) } }),
+      this.prisma.student_profiles.count({ where: { ...profileWhere, status: { in: ['', 'Waiting for Student'] } } }),
+      this.prisma.student_profiles.count({ where: { ...profileWhere, status: { in: ['Completed', 'Approval Pending by Admin'] } } }),
+      this.prisma.student_profiles.count({ where: { ...profileWhere, status: 'Approved' } }),
     ]);
     return {
       section: 'students',
@@ -773,6 +862,10 @@ export class AdminService {
     const deliveryEmail = dto.email.trim().toLowerCase();
     const registrationNumber = dto.register_number.trim();
     const batch = dto.batch.trim().replace(/\s+/g, ' ');
+    const batchContext = await this.batchContext(actorEmail);
+    if (!batchContext.batches.some((item) => item.name === batch)) {
+      throw new UnprocessableEntityException('Create the batch from Select Batch before adding students to it');
+    }
     if (dto.username.trim().toLowerCase() !== email) throw new UnprocessableEntityException('Draft username and Cyber Lancers login email must be identical');
     const domain = `@${this.config.get<string>('studentEmailDomain')}`;
     if (!email.endsWith(domain)) throw new UnprocessableEntityException(`Student login email must end with ${domain}`);
