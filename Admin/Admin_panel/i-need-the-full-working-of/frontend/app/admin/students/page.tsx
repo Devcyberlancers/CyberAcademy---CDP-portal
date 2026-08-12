@@ -20,6 +20,7 @@ export default function StudentsPage() {
   const [massAccess, setMassAccess] = useState<PortalAccessSettings>({ courses_enabled: false, assessments_enabled: false, jobs_enabled: false });
   const [savingAccess, setSavingAccess] = useState(false);
   const [verifyingId, setVerifyingId] = useState("");
+  const [activeBatch, setActiveBatch] = useState("");
 
   useEffect(() => { void getGlobalPortalAccess().then(setMassAccess).catch(() => undefined); }, []);
 
@@ -50,6 +51,7 @@ export default function StudentsPage() {
 
   const visibleStudents = useMemo(() => {
     return students
+      .filter((student) => !activeBatch || (student.batch?.trim() || "Unassigned") === activeBatch)
       .filter((student) => {
         if (activeTab === "All Students") return true;
         if (activeTab === "New Users") return student.status === "New User" || student.status === "Pending Approval";
@@ -60,11 +62,16 @@ export default function StudentsPage() {
       .filter((student) => {
         const search = query.trim().toLowerCase();
         if (!search) return true;
-        return [student.name, student.email, student.regNo, student.status, student.module].some((value) =>
+        return [student.name, student.email, student.regNo, student.status, student.module, student.batch].some((value) =>
           String(value).toLowerCase().includes(search)
         );
       });
-  }, [activeTab, query, students]);
+  }, [activeBatch, activeTab, query, students]);
+
+  const batches = useMemo(() => [...students.reduce((map, student) => {
+    const name = student.batch?.trim() || "Unassigned";
+    const rows = map.get(name) ?? []; rows.push(student); map.set(name, rows); return map;
+  }, new Map<string, typeof students>())].map(([name, rows]) => ({ name, rows })).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })), [students]);
 
   const studentStats = [
     { label: "Total Students", value: String(stats.totalStudents), caption: "Approved accounts", tone: "indigo", icon: Users },
@@ -78,6 +85,13 @@ export default function StudentsPage() {
       <div className="mb-5 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
         {studentStats.map((stat) => <StatCard key={stat.label} {...stat} />)}
       </div>
+      <SectionCard title="Student Batches">
+        <p className="mb-4 text-sm text-slate-500">Students are grouped by the batch name entered during account creation. Open a batch to use the complete student management view for only that batch.</p>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {batches.map((batchItem) => <button key={batchItem.name} type="button" onClick={() => { setActiveBatch(batchItem.name); setActiveTab("All Students"); }} className={`rounded-xl border p-4 text-left transition ${activeBatch === batchItem.name ? "border-portal-blue bg-blue-50 ring-2 ring-blue-100" : "border-portal-line bg-white hover:border-portal-blue"}`}><div className="flex items-center justify-between"><span className="grid h-10 w-10 place-items-center rounded-lg bg-[#eef2ff] text-portal-blue"><Users size={19}/></span><span className="text-2xl font-black text-slate-950">{batchItem.rows.length}</span></div><h3 className="mt-4 text-lg font-black text-slate-950">{batchItem.name}</h3><p className="mt-1 text-xs text-slate-500">{batchItem.rows.filter((student) => student.status === "Pending Approval" || student.status === "New User").length} pending / {batchItem.rows.filter((student) => student.progress >= 100).length} completed</p><span className="mt-4 inline-block text-sm font-bold text-portal-blue">View batch details &gt;</span></button>)}
+        </div>
+        {activeBatch ? <div className="mt-4 flex items-center justify-between rounded-lg bg-slate-50 px-4 py-3"><p className="text-sm font-bold text-slate-800">Showing complete details for batch {activeBatch}</p><button type="button" onClick={() => setActiveBatch("")} className="rounded-md border bg-white px-3 py-1.5 text-xs font-bold text-slate-700">Show all batches</button></div> : null}
+      </SectionCard>
       <SectionCard title="Mass Student Portal Access">
         <p className="mb-4 text-sm text-slate-500">These controls immediately enable or disable each section for every student. Dedicated student settings can be changed from that student&apos;s detail page.</p>
         <div className="grid gap-3 md:grid-cols-3">
@@ -145,6 +159,7 @@ export default function StudentsPage() {
             <thead>
               <tr className="border-y border-portal-line bg-slate-50 text-slate-600">
                 <th className="px-4 py-3">Student</th>
+                <th className="px-4 py-3">Batch</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Course Progress</th>
                 <th className="px-4 py-3">Current Module</th>
@@ -165,6 +180,7 @@ export default function StudentsPage() {
                       </div>
                     </div>
                   </td>
+                  <td className="px-4 py-4"><button type="button" onClick={() => setActiveBatch(student.batch?.trim() || "Unassigned")} className="rounded-full bg-[#eef2ff] px-3 py-1 text-xs font-bold text-portal-blue">{student.batch?.trim() || "Unassigned"}</button></td>
                   <td className="px-4 py-4">
                     <span className={`rounded-full px-3 py-1 text-xs font-bold ${student.status === "Advanced" ? "bg-emerald-50 text-emerald-700" : student.status === "In Progress" ? "bg-amber-50 text-amber-700" : student.status === "Suspended" ? "bg-red-50 text-red-700" : "bg-blue-50 text-blue-700"}`}>{student.status}</span>
                   </td>
@@ -177,7 +193,7 @@ export default function StudentsPage() {
               ))}
               {visibleStudents.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center font-semibold text-slate-500">No students found.</td>
+                  <td colSpan={8} className="px-4 py-8 text-center font-semibold text-slate-500">No students found.</td>
                 </tr>
               ) : null}
             </tbody>

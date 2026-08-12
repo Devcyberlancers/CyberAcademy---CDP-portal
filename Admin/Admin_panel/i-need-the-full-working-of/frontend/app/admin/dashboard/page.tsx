@@ -313,11 +313,11 @@ function DashboardAccountCreator({ registrations, selectedId, onSelect, registra
 
   const requiredReady = [name, regNo, personalEmail, credentialEmail, senderEmail, companyEmail, portalLink].every(
     (value) => value.trim().length > 0
-  );
+  ) && (mode !== "new" || batch.trim().length > 0);
 
   async function requireFilled(action: () => Promise<void> | void) {
     if (!requiredReady) {
-      setNotice("Fill all account and email fields before creating or sending credentials.");
+      setNotice(mode === "new" && !batch.trim() ? "Enter the student batch name (for example, 2026 A)." : "Fill all account and email fields before creating or sending credentials.");
       return;
     }
     if (!credentialEmail.trim().toLowerCase().endsWith("@cyberlancers.in")) {
@@ -410,8 +410,8 @@ function DashboardAccountCreator({ registrations, selectedId, onSelect, registra
               <input value={phone} onChange={(event) => setPhone(event.target.value)} className="h-9 w-full rounded-md border border-portal-line px-3 outline-none focus:border-portal-blue" placeholder="optional" />
             </label>
             <label>
-              <span className="mb-1 block font-bold text-slate-600">Batch</span>
-              <input value={batch} onChange={(event) => setBatch(event.target.value)} className="h-9 w-full rounded-md border border-portal-line px-3 outline-none focus:border-portal-blue" placeholder="optional" />
+              <span className="mb-1 block font-bold text-slate-600">Batch *</span>
+              <input value={batch} onChange={(event) => setBatch(event.target.value)} className="h-9 w-full rounded-md border border-portal-line px-3 outline-none focus:border-portal-blue" placeholder="e.g. 2026 A" />
             </label>
             <label>
               <span className="mb-1 block font-bold text-slate-600">Degree</span>
@@ -687,4 +687,3 @@ function BulkCsvAccountCreator({ onCreate }: {
     </section>
   );
 }
-

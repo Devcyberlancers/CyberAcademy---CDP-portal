@@ -503,7 +503,34 @@ export class StudentPortalService {
       orderBy: { sent_at: 'desc' },
       take: 100,
     });
-    return rows.map((row) => ({ id: row.id, message: row.message, sentBy: row.sent_by, sentAt: row.sent_at.toISOString() }));
+    return rows.map((row) => ({ id: row.id, message: row.message, sentBy: row.sent_by, sentAt: row.sent_at.toISOString(), readAt: row.read_at?.toISOString() ?? null }));
+  }
+
+  async readMessage(email: string, id: number) {
+    const result = await this.prisma.admin_student_messages.updateMany({
+      where: { id, student_email: email.toLowerCase(), read_at: null },
+      data: { read_at: new Date() },
+    });
+    if (!result.count) {
+      const exists = await this.prisma.admin_student_messages.findFirst({ where: { id, student_email: email.toLowerCase() } });
+      if (!exists) throw new NotFoundException('Notification not found');
+    }
+    return { read: true, id };
+  }
+
+  async readAllMessages(email: string) {
+    const result = await this.prisma.admin_student_messages.updateMany({
+      where: { student_email: email.toLowerCase(), read_at: null },
+      data: { read_at: new Date() },
+    });
+    return { read: true, count: result.count };
+  }
+
+  async clearReadMessages(email: string) {
+    const result = await this.prisma.admin_student_messages.deleteMany({
+      where: { student_email: email.toLowerCase(), read_at: { not: null } },
+    });
+    return { cleared: true, count: result.count };
   }
 
   async portalAccess(email: string) {

@@ -252,16 +252,16 @@ export default function StudentDetailPage() {
               {!learningRecord?.courses.length ? <p className="text-sm text-slate-500">No courses have been assigned to this student.</p> : null}
             </div>
           </SectionCard>
-          <SectionCard title="Assessment History">
-            <p className="mb-4 text-sm text-slate-500">Course and standalone assessment attempts belonging only to {student.name}.</p>
+          <SectionCard title="Standalone Assessment History">
+            <p className="mb-4 text-sm text-slate-500">Only assessments published in the Assessment tab are shown here. Course module tests remain inside their specific course.</p>
             <div className="grid gap-3 md:grid-cols-2">
-              {[...(learningRecord?.courses.flatMap((course) => course.assessments) ?? []), ...(learningRecord?.standalone_assessments ?? [])].map((assessment) => (
+              {(learningRecord?.standalone_assessments ?? []).map((assessment) => (
                 <button key={assessment.assessment_id} type="button" onClick={() => setSelectedLearningAssessment(assessment)} className="rounded-xl border border-portal-line p-4 text-left transition hover:border-portal-blue hover:bg-blue-50">
                   <div className="flex items-start justify-between gap-3"><div><p className="font-bold text-slate-950">{assessment.assessment_title}</p><p className="mt-1 text-sm capitalize text-slate-500">{assessment.question_count} questions · {assessment.attempts_used} of {assessment.max_attempts} attempts used</p></div><ClipboardCheck size={20} className="text-portal-blue" /></div>
                   <div className="mt-4 flex items-end justify-between"><p className="text-xs capitalize text-slate-500">{assessment.latest_status.replaceAll("_", " ")}</p><p className="text-xl font-bold text-portal-blue">{assessment.latest_score === null || assessment.latest_score === undefined ? "Not attempted" : `${assessment.latest_score}%`}</p></div>
                 </button>
               ))}
-              {!(learningRecord?.courses.some((course) => course.assessments.length) || learningRecord?.standalone_assessments.length) ? <p className="text-sm text-slate-500">No assessment attempts recorded for this student.</p> : null}
+              {!learningRecord?.standalone_assessments.length ? <p className="text-sm text-slate-500">No standalone assessment attempts recorded for this student.</p> : null}
             </div>
           </SectionCard>
           <SectionCard title="Activity Timeline">

@@ -15,6 +15,8 @@ import {
   ShoppingCart,
   LogOut,
   FileText,
+  CheckCheck,
+  Trash2,
   User,
   UserRound
 } from "lucide-react";
@@ -55,12 +57,38 @@ export function DashboardShell({
 }) {
   const [isAccountOpen, setIsAccountOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-  const [messages, setMessages] = useState<Array<{ id: number; message: string; sentBy: string; sentAt: string }>>([]);
+  const [messages, setMessages] = useState<Array<{ id: number; message: string; sentBy: string; sentAt: string; readAt?: string | null }>>([]);
   const [portalAccess, setPortalAccess] = useState<PortalAccess>({ courses_enabled: false, assessments_enabled: false, jobs_enabled: false });
   const [accessLoaded, setAccessLoaded] = useState(false);
   const [accessError, setAccessError] = useState("");
   const profileIncomplete = !student.fullName || !student.registrationNumber || !student.phone || !student.department;
-  const notificationCount = messages.length + (profileIncomplete ? 1 : 0);
+  const notificationCount = messages.filter((message) => !message.readAt).length + (profileIncomplete ? 1 : 0);
+
+  async function updateMessages(path: string, method: "PUT" | "DELETE") {
+    const token = window.localStorage.getItem(authTokenStorageKey);
+    return fetch(new URL(path, process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000").toString(), {
+      method, headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+  }
+
+  async function markMessageRead(id: number) {
+    const now = new Date().toISOString();
+    setMessages((items) => items.map((item) => item.id === id ? { ...item, readAt: item.readAt || now } : item));
+    await updateMessages(`/api/student-messages/${id}/read`, "PUT").catch(() => undefined);
+  }
+
+  async function markAllMessagesRead() {
+    const now = new Date().toISOString();
+    setMessages((items) => items.map((item) => ({ ...item, readAt: item.readAt || now })));
+    await updateMessages("/api/student-messages/read-all", "PUT").catch(() => undefined);
+  }
+
+  async function clearReadMessages() {
+    const previous = messages;
+    setMessages((items) => items.filter((item) => !item.readAt));
+    const response = await updateMessages("/api/student-messages/read", "DELETE").catch(() => null);
+    if (!response?.ok) setMessages(previous);
+  }
 
   useEffect(() => {
     if (!student.email) return;
@@ -192,8 +220,8 @@ export function DashboardShell({
               {notificationCount ? <span className="absolute -right-2 -top-2 grid h-5 min-w-5 place-items-center rounded-full bg-red-500 px-1 text-[11px] font-bold text-white">{notificationCount}</span> : null}
             </button>
             {isNotificationsOpen ? <div className="absolute right-20 top-16 z-50 max-h-[420px] w-[min(90vw,390px)] overflow-y-auto rounded-xl border border-[#e4e8f0] bg-white p-3 shadow-2xl">
-              <h2 className="px-2 py-2 font-bold">Admin Messages</h2>
-              {messages.map((item) => <div key={item.id} className="mb-2 rounded-lg bg-[#f6f8fc] p-3"><p className="text-sm font-semibold text-[#07142f]">{item.message}</p><p className="mt-2 text-xs text-[#6c7280]">{new Date(item.sentAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" })} IST</p></div>)}
+              <div className="flex items-center justify-between gap-3 px-2 py-2"><h2 className="font-bold">Admin Messages</h2><div className="flex gap-2"><button type="button" onClick={() => void markAllMessagesRead()} disabled={!messages.some((item) => !item.readAt)} className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-bold text-[#3155ff] disabled:opacity-40"><CheckCheck size={13}/>Mark all read</button><button type="button" onClick={() => void clearReadMessages()} disabled={!messages.some((item) => item.readAt)} className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-bold text-red-600 disabled:opacity-40"><Trash2 size={13}/>Clear read</button></div></div>
+              {messages.map((item) => <button type="button" onClick={() => void markMessageRead(item.id)} key={item.id} className={`mb-2 block w-full rounded-lg border p-3 text-left ${item.readAt ? "border-transparent bg-[#f8f9fc] opacity-75" : "border-[#d9e0ff] bg-[#f2f5ff]"}`}><div className="flex items-start gap-2"><span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${item.readAt ? "bg-slate-300" : "bg-[#3155ff]"}`}/><div><p className="text-sm font-semibold text-[#07142f]">{item.message}</p><p className="mt-2 text-xs text-[#6c7280]">{new Date(item.sentAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" })} IST / {item.readAt ? "Read" : "Unread"}</p></div></div></button>)}
               {profileIncomplete ? (
                 <a href="/profile" className="mb-2 block rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
                   <b>Complete your profile</b>

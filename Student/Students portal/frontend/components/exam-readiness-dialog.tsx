@@ -22,7 +22,7 @@ function environment(){
  const version=Number(match?.[1]||0),zone=Intl.DateTimeFormat().resolvedOptions().timeZone;
  return{browser:`${name} ${version}`,supported:name!=="Unsupported"&&version>=(name==="Safari"?12:60),desktop:!/Android|iPhone|iPad|iPod|Mobile/i.test(agent)&&innerWidth>=768,ist:new Date().getTimezoneOffset()===-330||["Asia/Calcutta","Asia/Kolkata"].includes(zone)};
 }
-function stopStreams(){
+export function stopExamStreams(){
  const streamWindow=window as StreamWindow;
  streamWindow.__cyberAcademyMediaStream?.getTracks().forEach((track)=>track.stop());
  streamWindow.__cyberAcademyScreenStream?.getTracks().forEach((track)=>track.stop());
@@ -44,7 +44,7 @@ export function ExamReadinessDialog({title,onClose,onProceed}:Props){
  const systemReady=systemChecks.every((item)=>item[2]);
  useEffect(()=>{if(stage!==1)return;let cancelled=false;setChecking(true);setValidity([]);const run=async()=>{for(const message of ["Validating test status","Checking attempt availability","Checking test schedule and duration","Confirming student authentication"]){if(cancelled)return;setValidity((items)=>[...items,message]);await new Promise((resolve)=>window.setTimeout(resolve,550))}if(!cancelled)setChecking(false)};void run();return()=>{cancelled=true}},[stage]);
  useEffect(()=>{if(stage!==3||!mediaReady||!videoRef.current)return;const stream=(window as StreamWindow).__cyberAcademyMediaStream;if(stream){videoRef.current.srcObject=stream;void videoRef.current.play()}},[stage,mediaReady]);
- function close(){stopStreams();onClose()}
+ function close(){stopExamStreams();onClose()}
  async function allowMedia(){
   setChecking(true);setError("");
   try{

@@ -1,5 +1,5 @@
 import {
-  Body, Controller, ForbiddenException, Get, Headers, Ip, Param, ParseIntPipe, Post, Put, Query, UseGuards,
+  Body, Controller, Delete, ForbiddenException, Get, Headers, Ip, Param, ParseIntPipe, Post, Put, Query, UseGuards,
 } from '@nestjs/common';
 import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -112,6 +112,27 @@ export class StudentPortalController {
   @Get('student-messages')
   @UseGuards(JwtAuthGuard)
   messages(@CurrentUser() user: AuthenticatedUser) { return this.service.messages(user.sub); }
+
+  @Put('student-messages/:id/read')
+  @UseGuards(JwtAuthGuard)
+  readMessage(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseIntPipe) id: number) {
+    this.requireStudent(user);
+    return this.service.readMessage(user.sub, id);
+  }
+
+  @Put('student-messages/read-all')
+  @UseGuards(JwtAuthGuard)
+  readAllMessages(@CurrentUser() user: AuthenticatedUser) {
+    this.requireStudent(user);
+    return this.service.readAllMessages(user.sub);
+  }
+
+  @Delete('student-messages/read')
+  @UseGuards(JwtAuthGuard)
+  clearReadMessages(@CurrentUser() user: AuthenticatedUser) {
+    this.requireStudent(user);
+    return this.service.clearReadMessages(user.sub);
+  }
 
   @Get('portal-access')
   @UseGuards(JwtAuthGuard)
