@@ -107,7 +107,7 @@ export class StudentAccountDto {
   @IsOptional() @IsString() branch?: string;
   @IsString()
   @Transform(({ value }) => typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : value)
-  @MaxLength(80)
+  @MaxLength(40)
   @Matches(/^\d{4}\s+[A-Za-z0-9][A-Za-z0-9 _-]*$/, {
     message: 'batch must start with a four-digit year followed by a label, for example 2026 A',
   })
@@ -140,7 +140,7 @@ export class LegacyStudentLoginDto {
   @IsOptional() @IsString() registration_number = '';
   @IsString()
   @Transform(({ value }) => typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : value)
-  @MaxLength(80)
+  @MaxLength(40)
   @Matches(/^\d{4}\s+[A-Za-z0-9][A-Za-z0-9 _-]*$/, {
     message: 'batch must start with a four-digit year followed by a label, for example 2026 A',
   })

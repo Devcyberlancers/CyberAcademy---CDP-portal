@@ -7,7 +7,34 @@ import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { FastApiExceptionFilter } from './common/filters/fastapi-exception.filter';
+import { PrismaService } from './prisma/prisma.service';
 import { json, urlencoded, type NextFunction, type Request, type Response } from 'express';
+
+const CURRENT_STUDENT_BATCH_MIGRATION = 'CONSOLIDATE_EXISTING_STUDENTS_TO_2026_A_V1';
+
+async function consolidateExistingStudentsIntoCurrentBatch(prisma: PrismaService) {
+  const alreadyApplied = await prisma.audit_logs.findFirst({
+    where: { action: CURRENT_STUDENT_BATCH_MIGRATION },
+    select: { id: true },
+  });
+  if (alreadyApplied) return;
+
+  await prisma.$transaction(async (tx) => {
+    const result = await tx.student_profiles.updateMany({
+      data: { batch: '2026 A', updated_at: new Date() },
+    });
+    await tx.audit_logs.create({
+      data: {
+        actor_email: 'system',
+        action: CURRENT_STUDENT_BATCH_MIGRATION,
+        target_type: 'student_profiles',
+        target_id: '2026 A',
+        details: JSON.stringify({ updated_students: result.count, batch: '2026 A' }),
+        created_at: new Date(),
+      },
+    });
+  });
+}
 
 function normalizeEmailFields(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(normalizeEmailFields);
@@ -26,6 +53,7 @@ function normalizeEmailFields(value: unknown): unknown {
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true, bodyParser: false });
   const config = app.get(ConfigService);
+  await consolidateExistingStudentsIntoCurrentBatch(app.get(PrismaService));
   app.useLogger(app.get(Logger));
   app.getHttpAdapter().getInstance().set('trust proxy', 1);
   app.use(json({ limit: '12mb' }));

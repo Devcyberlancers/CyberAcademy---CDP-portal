@@ -88,6 +88,7 @@ type AdminStore = {
 };
 
 const storageKey = "student-portal-admin-state-v1";
+const batchConsolidationStorageKey = "student-portal-batch-2026-a-v1";
 const AdminContext = createContext<AdminStore | null>(null);
 const defaultSenderEmail = process.env.NEXT_PUBLIC_DEFAULT_SENDER_EMAIL ?? "";
 const defaultStudentPortalLink = process.env.NEXT_PUBLIC_STUDENT_PORTAL_LINK ?? "http://localhost:3000";
@@ -170,9 +171,15 @@ export function AdminStoreProvider({ children }: { children: React.ReactNode }) 
         registrations?: RegistrationRecord[];
         activityLog?: string[];
       };
-      if (parsed.students) setStudents(parsed.students.filter((student) => typeof student?.name === "string"));
-      if (parsed.registrations) setRegistrations(parsed.registrations.filter((registration) => typeof registration?.name === "string"));
+      const needsBatchConsolidation = window.localStorage.getItem(batchConsolidationStorageKey) !== "done";
+      if (parsed.students) setStudents(parsed.students
+        .filter((student) => typeof student?.name === "string")
+        .map((student) => needsBatchConsolidation ? { ...student, batch: "2026 A" } : student));
+      if (parsed.registrations) setRegistrations(parsed.registrations
+        .filter((registration) => typeof registration?.name === "string")
+        .map((registration) => needsBatchConsolidation ? { ...registration, batch: "2026 A" } : registration));
       if (parsed.activityLog) setActivityLog(parsed.activityLog);
+      if (needsBatchConsolidation) window.localStorage.setItem(batchConsolidationStorageKey, "done");
     } catch {
       window.localStorage.removeItem(storageKey);
     }
