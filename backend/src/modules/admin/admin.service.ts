@@ -861,10 +861,7 @@ export class AdminService {
     const email = dto.credential_email.trim().toLowerCase();
     const deliveryEmail = dto.email.trim().toLowerCase();
     const registrationNumber = dto.register_number.trim();
-    const requestedBatch = dto.batch.trim().replace(/\s+/g, ' ');
-    const batch = email === 'snehajaaanu2@cyberlancers.in' && registrationNumber.toLowerCase() === 'ca08'
-      ? '2026 A'
-      : requestedBatch;
+    const batch = dto.batch.trim().replace(/\s+/g, ' ');
     const batchContext = await this.batchContext(actorEmail);
     if (!batchContext.batches.some((item) => item.name === batch)) {
       throw new UnprocessableEntityException('Create the batch from Select Batch before adding students to it');
