@@ -12,54 +12,70 @@ import { json, urlencoded, type NextFunction, type Request, type Response } from
 
 const CURRENT_STUDENT_BATCH_MIGRATION = 'CONSOLIDATE_EXISTING_STUDENTS_TO_2026_A_V1';
 const CURRENT_CONTENT_BATCH_MIGRATION = 'ASSIGN_EXISTING_CONTENT_TO_2026_A_V1';
-const DELETE_SNEHA_CA08 = 'DELETE_SNEHA_CA08_V1';
+const RECOVER_CA08_ADMIN_PROFILE = 'RECOVER_CA08_ADMIN_PROFILE_V1';
 
-async function deleteSnehaCa08(prisma: PrismaService) {
-  if (await prisma.audit_logs.findFirst({ where: { action: DELETE_SNEHA_CA08 }, select: { id: true } })) return;
+async function recoverCa08AdminProfile(prisma: PrismaService) {
+  if (await prisma.audit_logs.findFirst({ where: { action: RECOVER_CA08_ADMIN_PROFILE }, select: { id: true } })) return;
+
   const email = 'snehajaaanu2@cyberlancers.in';
-  const profile = await prisma.student_profiles.findFirst({
-    where: {
-      email,
-      personal_email: 'snehajaaanu2@gmail.com',
-      registration_number: 'CA08',
-    },
+  const account = await prisma.users.findUnique({
+    where: { email },
+    include: { students: { include: { departments: true }, orderBy: { id: 'asc' } } },
   });
-  if (!profile) return;
-  const user = await prisma.users.findUnique({ where: { email }, include: { students: true } });
-  const studentIds = user?.students.map((student) => student.id) ?? [];
+  const academic = account?.students[0];
+  if (!account || !academic) return;
+  const existingProfile = await prisma.student_profiles.findUnique({ where: { email } });
+  if (existingProfile) {
+    if (existingProfile.batch === '2026 A') return;
+    await prisma.$transaction([
+      prisma.student_profiles.update({ where: { id: existingProfile.id }, data: { batch: '2026 A', updated_at: new Date() } }),
+      prisma.audit_logs.create({
+        data: {
+          actor_email: 'system', action: RECOVER_CA08_ADMIN_PROFILE,
+          target_type: 'student', target_id: String(existingProfile.id),
+          details: JSON.stringify({ email, previous_batch: existingProfile.batch, batch: '2026 A', recovery: 'existing-profile-batch' }),
+          created_at: new Date(),
+        },
+      }),
+    ]);
+    return;
+  }
+
+  const storedUsn = academic.usn.trim().replace(/\s+/g, ' ');
+  const registrationNumber = /^(?:2026)\s*[-\u2013\u2014]\s*(.+)$/.exec(storedUsn)?.[1]?.trim() || storedUsn;
+  const registrationOwner = await prisma.student_profiles.findFirst({
+    where: { OR: [{ registration_number: registrationNumber }, { cyberlancers_id: registrationNumber }] },
+    select: { id: true },
+  });
+  if (registrationOwner) return;
+
   await prisma.$transaction(async (tx) => {
-    const attempts = await tx.assignment_attempts.findMany({
-      where: {
-        OR: [
-          { student_email: email },
-          ...(studentIds.length ? [{ student_id: { in: studentIds } }] : []),
-        ],
+    const profile = await tx.student_profiles.create({
+      data: {
+        email,
+        full_name: academic.full_name.trim() || 'Sneha S',
+        first_name: academic.full_name.trim().split(/\s+/)[0] || 'Sneha',
+        cyberlancers_id: '', registration_number: registrationNumber,
+        phone: '', gender: '', date_of_birth: '', tag: 'Profile Pending',
+        batch: '2026 A', course: '', college: '',
+        department: academic.departments?.name ?? '',
+        status: 'Waiting for Student', resume_url: academic.resume_url ?? '',
+        mentor_name: '', updated_at: new Date(),
       },
-      select: { id: true },
     });
-    await tx.assignment_events.deleteMany({ where: { attempt_id: { in: attempts.map((attempt) => attempt.id) } } });
-    await tx.assignment_attempts.deleteMany({ where: { id: { in: attempts.map((attempt) => attempt.id) } } });
-    if (studentIds.length) {
-      await tx.student_course_assignments.deleteMany({ where: { student_id: { in: studentIds } } });
-      await tx.resume_analyses.deleteMany({ where: { student_id: { in: studentIds } } });
-      await tx.assessment_submissions.deleteMany({ where: { student_id: { in: studentIds } } });
-      await tx.applications.deleteMany({ where: { student_id: { in: studentIds } } });
-      await tx.students.deleteMany({ where: { id: { in: studentIds } } });
-    }
-    await tx.admin_student_messages.deleteMany({ where: { student_email: email } });
-    await tx.student_daily_reminders.deleteMany({ where: { student_email: email } });
-    await tx.student_job_search_preferences.deleteMany({ where: { student_email: email } });
-    await tx.portal_access_settings.deleteMany({ where: { scope_key: email } });
-    await tx.email_otps.deleteMany({ where: { email } });
-    await tx.password_reset_tokens.deleteMany({ where: { email } });
-    await tx.admin_snapshots.deleteMany({ where: { key: { endsWith: email } } });
-    await tx.student_profiles.delete({ where: { id: profile.id } });
-    if (user) await tx.users.delete({ where: { id: user.id } });
+    await tx.portal_access_settings.upsert({
+      where: { scope_key: email },
+      create: {
+        scope_key: email, courses_enabled: false, assessments_enabled: false,
+        jobs_enabled: false, updated_by: 'system-recovery', updated_at: new Date(),
+      },
+      update: {},
+    });
     await tx.audit_logs.create({
       data: {
-        actor_email: 'system', action: DELETE_SNEHA_CA08,
+        actor_email: 'system', action: RECOVER_CA08_ADMIN_PROFILE,
         target_type: 'student', target_id: String(profile.id),
-        details: JSON.stringify({ name: 'Sneha S', email, personal_email: profile.personal_email, registration_number: 'CA08', permanently_deleted: true }),
+        details: JSON.stringify({ email, academic_student_id: academic.id, registration_number: registrationNumber, batch: '2026 A' }),
         created_at: new Date(),
       },
     });
@@ -129,8 +145,8 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true, bodyParser: false });
   const config = app.get(ConfigService);
   await consolidateExistingStudentsIntoCurrentBatch(app.get(PrismaService));
+  await recoverCa08AdminProfile(app.get(PrismaService));
   await assignExistingContentToCurrentBatch(app.get(PrismaService));
-  await deleteSnehaCa08(app.get(PrismaService));
   app.useLogger(app.get(Logger));
   app.getHttpAdapter().getInstance().set('trust proxy', 1);
   app.use(json({ limit: '12mb' }));
