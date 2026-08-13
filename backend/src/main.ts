@@ -12,6 +12,30 @@ import { json, urlencoded, type NextFunction, type Request, type Response } from
 
 const CURRENT_STUDENT_BATCH_MIGRATION = 'CONSOLIDATE_EXISTING_STUDENTS_TO_2026_A_V1';
 const CURRENT_CONTENT_BATCH_MIGRATION = 'ASSIGN_EXISTING_CONTENT_TO_2026_A_V1';
+const ASSIGN_CA08_TO_2026_A = 'ASSIGN_CA08_TO_2026_A_V1';
+
+async function assignCa08To2026A(prisma: PrismaService) {
+  if (await prisma.audit_logs.findFirst({ where: { action: ASSIGN_CA08_TO_2026_A }, select: { id: true } })) return;
+  await prisma.$transaction(async (tx) => {
+    const result = await tx.student_profiles.updateMany({
+      where: {
+        email: 'snehajaaanu2@cyberlancers.in',
+        OR: [{ registration_number: 'CA08' }, { cyberlancers_id: 'CA08' }],
+      },
+      data: { batch: '2026 A', updated_at: new Date() },
+    });
+    if (result.count) {
+      await tx.audit_logs.create({
+        data: {
+          actor_email: 'system', action: ASSIGN_CA08_TO_2026_A,
+          target_type: 'student', target_id: 'CA08',
+          details: JSON.stringify({ email: 'snehajaaanu2@cyberlancers.in', registration_number: 'CA08', batch: '2026 A' }),
+          created_at: new Date(),
+        },
+      });
+    }
+  });
+}
 
 async function consolidateExistingStudentsIntoCurrentBatch(prisma: PrismaService) {
   const alreadyApplied = await prisma.audit_logs.findFirst({
@@ -77,6 +101,7 @@ async function bootstrap() {
   const config = app.get(ConfigService);
   await consolidateExistingStudentsIntoCurrentBatch(app.get(PrismaService));
   await assignExistingContentToCurrentBatch(app.get(PrismaService));
+  await assignCa08To2026A(app.get(PrismaService));
   app.useLogger(app.get(Logger));
   app.getHttpAdapter().getInstance().set('trust proxy', 1);
   app.use(json({ limit: '12mb' }));

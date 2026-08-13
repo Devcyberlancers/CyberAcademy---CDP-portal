@@ -553,6 +553,9 @@ export function AdminStoreProvider({ children }: { children: React.ReactNode }) 
           status: "Credentials Sent - Awaiting Profile"
         } : item)
       );
+      const refreshedStudents = await listStudentsFromDb();
+      setStudents(refreshedStudents.map(studentFromDb));
+      setRegistrations(refreshedStudents.filter((student) => student.profile_status !== 'Approved').map(registrationFromDb));
       addLog(`${name} stored in MySQL; ${credentialEmail} credentials emailed to ${cleanRecord.email}.`);
       return registrationId;
     } catch (error) {

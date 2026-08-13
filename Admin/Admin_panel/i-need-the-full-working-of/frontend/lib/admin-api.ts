@@ -463,7 +463,7 @@ export async function createStudentAccountInDb(payload: StudentAccountPayload) {
     notify({ type: "error", message: detail || "Student account could not be saved." });
     throw new Error(detail || `Request failed with ${response.status}`);
   }
-  const created = json as { id: number; credential_email_sent?: boolean; credential_delivery_message?: string | null };
+  const created = json as { id: number; credential_email_sent?: boolean; credential_delivery_message?: string | null; existing_account_recovered?: boolean };
   notify({
     type: "success",
     message: created.credential_email_sent
