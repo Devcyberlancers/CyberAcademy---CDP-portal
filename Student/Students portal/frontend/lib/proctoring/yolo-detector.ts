@@ -1,4 +1,6 @@
-import * as ort from "onnxruntime-web";
+import type { InferenceSession, Tensor } from "onnxruntime-web";
+
+type OrtWasmRuntime = typeof import("onnxruntime-web/wasm");
 
 type Box = { x1: number; y1: number; x2: number; y2: number; score: number; classId: number };
 export type YoloDetectionResult = { personCount: number; phoneDetected: boolean; confidence: number };
@@ -22,7 +24,8 @@ function suppress(boxes: Box[]) {
 }
 
 export class YoloCocoDetector {
-  private session?: ort.InferenceSession;
+  private runtime?: OrtWasmRuntime;
+  private session?: InferenceSession;
   private canvas = document.createElement("canvas");
   private context: CanvasRenderingContext2D;
 
@@ -35,6 +38,11 @@ export class YoloCocoDetector {
   }
 
   async load() {
+    // Load only in the browser. The package's default entry enables JSEP and can
+    // request `ort-wasm-simd-threaded.jsep.*`; the WASM entry uses the two local
+    // runtime assets deployed under /public/models/onnx instead.
+    const ort = await import("onnxruntime-web/wasm");
+    this.runtime = ort;
     ort.env.wasm.numThreads = 1;
     ort.env.wasm.proxy = false;
     ort.env.wasm.wasmPaths = "/models/onnx/";
@@ -45,7 +53,7 @@ export class YoloCocoDetector {
   }
 
   async detect(video: HTMLVideoElement): Promise<YoloDetectionResult> {
-    if (!this.session || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return { personCount: 0, phoneDetected: false, confidence: 0 };
+    if (!this.runtime || !this.session || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return { personCount: 0, phoneDetected: false, confidence: 0 };
     this.context.drawImage(video, 0, 0, INPUT_SIZE, INPUT_SIZE);
     const pixels = this.context.getImageData(0, 0, INPUT_SIZE, INPUT_SIZE).data;
     const input = new Float32Array(3 * INPUT_SIZE * INPUT_SIZE);
@@ -55,9 +63,9 @@ export class YoloCocoDetector {
       input[plane + index] = pixels[index * 4 + 1] / 255;
       input[plane * 2 + index] = pixels[index * 4 + 2] / 255;
     }
-    const feeds = { [this.session.inputNames[0]]: new ort.Tensor("float32", input, [1, 3, INPUT_SIZE, INPUT_SIZE]) };
+    const feeds = { [this.session.inputNames[0]]: new this.runtime.Tensor("float32", input, [1, 3, INPUT_SIZE, INPUT_SIZE]) };
     const result = await this.session.run(feeds);
-    const tensor = result[this.session.outputNames[0]] as ort.Tensor;
+    const tensor = result[this.session.outputNames[0]] as Tensor;
     const data = tensor.data as Float32Array;
     const dimensions = tensor.dims.map(Number);
     const attributes = dimensions[1];
@@ -86,5 +94,6 @@ export class YoloCocoDetector {
   async close() {
     await this.session?.release();
     this.session = undefined;
+    this.runtime = undefined;
   }
 }
