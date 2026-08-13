@@ -88,7 +88,7 @@ export class StudentPortalController {
     return this.service.submitModuleQuiz(id, user.sub, dto.module_index, dto.answers ?? {}, {
       startedAt: dto.started_at, tabSwitches: dto.tab_switches, browser: dto.browser,
       operatingSystem: dto.operating_system, violationReason: dto.violation_reason,
-      ip: resolveClientIp(headers, ip), userAgent: userAgent ?? '',
+      ip: resolveClientIp(headers, ip), userAgent: userAgent ?? '', proctoringEvents: dto.proctoring_events,
     });
   }
   @Get('announcements') announcements() { return this.service.announcements(); }

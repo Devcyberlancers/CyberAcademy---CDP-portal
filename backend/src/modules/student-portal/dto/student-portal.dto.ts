@@ -73,6 +73,9 @@ export class ModuleQuizSubmissionDto {
   @IsOptional()
   @IsString()
   violation_reason?: string;
+
+  @IsOptional()
+  proctoring_events: Array<{ type: string; timestamp: number; severity: string; confidence?: number; metadata?: Record<string, unknown> }> = [];
 }
 
 export class JobQueryDto {

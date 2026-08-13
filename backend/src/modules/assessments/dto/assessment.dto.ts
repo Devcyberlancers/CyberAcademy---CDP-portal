@@ -1,4 +1,4 @@
-import { IsBoolean, IsEmail, IsObject, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsEmail, IsObject, IsOptional, IsString, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class AssessmentCollectionDto {
@@ -27,6 +27,10 @@ export class EventDto {
   @IsString() event_type!: string;
   @IsString() @IsOptional() reason = '';
   @IsObject() @IsOptional() details: Record<string, any> = {};
+}
+
+export class EventsDto {
+  @IsArray() events: Array<{ event_type: string; reason?: string; details?: Record<string, any>; timestamp?: string }> = [];
 }
 
 export class CloseAttemptDto {

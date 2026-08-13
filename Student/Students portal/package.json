@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
+    "@mediapipe/tasks-vision": "^1.0.1",
     "@tanstack/react-query": "^5.81.5",
     "axios": "^1.10.0",
     "class-variance-authority": "^0.7.1",
@@ -24,6 +25,7 @@
     "lucide-react": "^0.468.0",
     "next": "^15.3.5",
     "next-themes": "^0.4.6",
+    "onnxruntime-web": "^1.27.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-hook-form": "^7.55.0",

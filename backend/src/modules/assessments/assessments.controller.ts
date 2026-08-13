@@ -8,7 +8,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { resolveClientIp, type RequestHeaders } from '../../common/http/client-ip';
 import {
-  AssessmentCollectionDto, CloseAttemptDto, EventDto, SaveAnswerDto, StartAttemptDto,
+  AssessmentCollectionDto, CloseAttemptDto, EventDto, EventsDto, SaveAnswerDto, StartAttemptDto,
   NativeAssessmentDto,
 } from './dto/assessment.dto';
 import { AssessmentsService } from './assessments.service';
@@ -45,6 +45,7 @@ export class AssessmentsController {
   }
   @Post(':id/save-answer') answer(@Param('id', ParseIntPipe) id: number, @Body() dto: SaveAnswerDto) { return this.service.saveAnswer(id, dto); }
   @Post(':id/event') event(@Param('id', ParseIntPipe) id: number, @Body() dto: EventDto) { return this.service.event(id, dto); }
+  @Post(':id/events') events(@Param('id', ParseIntPipe) id: number, @Body() dto: EventsDto) { return this.service.events(id, dto.events); }
   @Post(':id/terminate') terminate(@Param('id', ParseIntPipe) id: number, @Body() dto: CloseAttemptDto) { return this.service.close(id, dto, true); }
   @Post(':id/submit') submit(@Param('id', ParseIntPipe) id: number, @Body() dto: CloseAttemptDto) { return this.service.close(id, dto); }
   @Get('attempts') attempts() { return this.service.attempts(); }

@@ -65,6 +65,7 @@ type StandaloneSubmission = {
   browser: string;
   ipAddress: string;
   proctoringStatus: "Clean" | "Warning" | "Flagged";
+  proctoringEvents?: Array<{ eventType: string; reason: string; createdAt: string }>;
   answers: StandaloneAnswer[];
 };
 
@@ -197,7 +198,7 @@ export default function AssessmentsPage() {
       ]);
       const detailResults = await Promise.allSettled(result.items.map((item) => getStudentAssessmentAttempt(item.attemptId)));
       const courseNames = new Map(catalog.map((course) => [String(course.id), course.title]));
-      const details = detailResults.map((detail, index) => detail.status === "fulfilled" ? detail.value : { ...result.items[index], questions: 0, answers: [] });
+      const details = detailResults.map((detail, index) => detail.status === "fulfilled" ? detail.value : { ...result.items[index], questions: 0, answers: [], events: [] });
       const databaseSubmissions: StandaloneSubmission[] = details.map((attempt) => {
         const courseMatch = /^course:([^:]+):/.exec(attempt.assignmentId);
         const courseTitle = courseMatch ? courseNames.get(courseMatch[1]) ?? `Course ${courseMatch[1]}` : "Standalone Assessment";
@@ -220,6 +221,7 @@ export default function AssessmentsPage() {
       browser: attempt.browser || "Unknown",
       ipAddress: attempt.ipAddress || "",
       proctoringStatus: attempt.riskLevel === "green" ? "Clean" : attempt.riskLevel === "yellow" ? "Warning" : "Flagged",
+      proctoringEvents: (attempt.events ?? []).map((event) => ({ eventType: event.eventType, reason: event.reason, createdAt: event.createdAt })),
       answers: (attempt.answers ?? []).map((answer) => ({
         questionId: answer.questionId,
         question: answer.question,
@@ -494,6 +496,7 @@ function ResultsView({ submissions, selected, onSelect, onRefresh, totals, loadi
             </div>
             <div className="grid gap-5 p-5">
               <div className="grid gap-4 md:grid-cols-4"><Summary label="Score" value={`${selected.score}/${selected.totalMarks}`} /><Summary label="Status" value={selected.status} /><Summary label="Security" value={selected.proctoringStatus} /><Summary label="Violations" value={String(selected.tabSwitches)} /></div>
+              <div><h3 className="mb-3 font-bold text-slate-950">Proctoring Timeline</h3><div className="space-y-2">{selected.proctoringEvents?.map((event, index) => <div key={`${event.eventType}-${event.createdAt}-${index}`} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-portal-line p-3 text-sm"><div><p className="font-bold text-slate-900">{event.eventType.replaceAll("_", " ")}</p><p className="text-slate-500">{event.reason || "Monitoring event recorded"}</p></div><time className="text-xs font-semibold text-slate-500">{new Date(event.createdAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST</time></div>)}{!selected.proctoringEvents?.length ? <p className="rounded-md bg-slate-50 p-4 text-sm text-slate-500">No proctoring violations were recorded for this attempt.</p> : null}</div></div>
               <div><h3 className="mb-3 font-bold text-slate-950">Answer Review</h3><div className="space-y-3">{selected.answers.map((answer, index) => <div key={`${answer.questionId}-${index}`} className="rounded-md border border-portal-line p-4"><div className="flex justify-between gap-3"><p className="font-bold text-slate-950">Q{index + 1}. {answer.question}</p><span className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold ${answer.correct ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>{answer.correct ? <CheckCircle2 size={14} /> : <XCircle size={14} />}{answer.correct ? "Correct" : "Incorrect"}</span></div><div className="mt-3 grid gap-3 text-sm md:grid-cols-2"><div className="rounded-md bg-slate-50 p-3"><p className="font-bold text-slate-600">Student Answer</p><p>{answer.answer || "Not answered"}</p></div><div className="rounded-md bg-blue-50 p-3"><p className="font-bold text-slate-600">Correct Answer</p><p>{answer.expectedAnswer || "Manual evaluation required"}</p></div></div></div>)}</div>{!selected.answers.length ? <p className="rounded-md bg-slate-50 p-5 text-sm text-slate-500">Detailed answers are unavailable for this attempt, but its submission status and score are stored.</p> : null}</div>
             </div>
           </div>

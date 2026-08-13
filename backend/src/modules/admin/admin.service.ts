@@ -622,6 +622,7 @@ export class AdminService {
             ...(academic ? [{ student_id: academic.id }] : []),
           ],
         },
+        include: { assignment_events: { orderBy: { created_at: 'asc' } } },
         orderBy: [{ started_at: 'desc' }, { id: 'desc' }],
       }),
       this.prisma.admin_snapshots.findMany({ where: { key: { startsWith: 'course-editor-modules-' } } }),
@@ -661,6 +662,7 @@ export class AdminService {
             violations: Number(attempt.violations ?? attempt.tabSwitches) || 0,
             started_at: attempt.startedAt || quiz?.submitted_at, submitted_at: attempt.endedAt || quiz?.submitted_at,
             ip_address: attempt.ipAddress || 'Unavailable', browser: attempt.browser || 'Unknown', operating_system: attempt.operatingSystem || 'Unknown',
+            proctoring_events: Array.isArray(attempt.proctoringEvents) ? attempt.proctoringEvents : [],
           }));
           return [{ assessment_id: `module:${index}`, assessment_title: String(moduleItem.quiz || moduleItem.title || `Module ${index + 1} Test`), max_attempts: Math.max(1, Number(moduleItem.maxAttempts) || 3), duration_minutes: Math.max(0, Number(moduleItem.durationMinutes) || 0), question_count: questions.length, attempts_used: attempts.length, latest_score: attempts.at(-1)?.score ?? null, latest_status: attempts.at(-1)?.status ?? 'not_attempted', attempts }];
         }));
@@ -685,6 +687,12 @@ export class AdminService {
         ip_address: attempt.ip_address || 'Unavailable',
         browser: attempt.browser || 'Unknown',
         operating_system: attempt.operating_system || 'Unknown',
+        proctoring_events: attempt.assignment_events.map((event) => ({
+          event_type: event.event_type,
+          reason: event.reason,
+          timestamp: event.created_at,
+          details: event.details_json ?? {},
+        })),
       };
     };
     const assessmentOut = (setting: (typeof settings)[number]) => {

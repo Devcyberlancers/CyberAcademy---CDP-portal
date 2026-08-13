@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Bookmark, Calendar, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ClipboardCheck, Filter, IdCard, Loader2, MapPin, RefreshCw, Search, ShieldCheck, Sparkles, TerminalSquare, UserRound } from "lucide-react";
 import { DashboardShell, type StudentSection } from "@/components/dashboard-shell";
 import { ExamReadinessDialog, stopExamStreams } from "@/components/exam-readiness-dialog";
+import { ProctoringPreview } from "@/components/proctoring-preview";
 import { Card } from "@/components/ui";
 import {
   defaultStudentAccount,
@@ -31,7 +32,8 @@ import { saveAnswer, syncQueuedAnswers } from "@/lib/auto-save";
 import { detectDevice, violationText, type SecureAssessmentSummary, type SecureAttempt } from "@/lib/assessment-security";
 import { enterFullscreen, exitFullscreen } from "@/lib/fullscreen-manager";
 import { installKeyboardBlocker } from "@/lib/keyboard-blocker";
-import { installViolationMonitor } from "@/lib/violation-monitor";
+import { configFromAssessmentSecurity, getPreparedProctoringEngine, stopPreparedProctoring } from "@/lib/proctoring/proctoring-engine";
+import type { ProctoringEvent } from "@/lib/proctoring/types";
 
 type ExternalJob = {
   id?: number;
@@ -1481,6 +1483,7 @@ function AssessmentsView() {
   const [selectedAssignmentId, setSelectedAssignmentId] = useState("");
   const [attempt, setAttempt] = useState<SecureAttempt | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const answersRef = useRef<Record<string, string>>({});
   const [acceptedRules, setAcceptedRules] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isStarting, setIsStarting] = useState(false);
@@ -1509,6 +1512,19 @@ function AssessmentsView() {
       alive = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!selectedAssignmentId || !assessments.length) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("launch") !== "1") return;
+    const selected = assessments.find((assessment) => assessment.assignmentId === selectedAssignmentId);
+    if (!selected) return;
+    setAcceptedRules(true);
+    setReadinessAssessment(selected);
+    params.delete("launch");
+    const query = params.toString();
+    window.history.replaceState({}, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+  }, [assessments, selectedAssignmentId]);
 
   async function loadAssessments(alive = true, requestedAssignmentId = selectedAssignmentId) {
     try {
@@ -1547,22 +1563,15 @@ function AssessmentsView() {
   useEffect(() => {
     if (!attempt || attempt.status !== "in_progress") return;
     const cleanupKeyboard = installKeyboardBlocker(attempt.security);
-    const cleanupMonitor = installViolationMonitor(
-      attempt.security,
-      (reason) => {
-        if (attempt.security.violationPolicy === "warning") {
-          void recordAssessmentEvent(attempt.attemptId, "SECURITY_WARNING", reason);
-          return;
-        }
-        if (attempt.security.violationPolicy === "auto_submit") {
-          void submitAttempt(true, reason);
-          return;
-        }
-        void terminateAttempt(reason);
+    const engine = getPreparedProctoringEngine();
+    engine?.configureSession({
+      onEvents: (events) => recordProctoringEvents(attempt.attemptId, events),
+      onPolicyAction: (action, event) => {
+        if (action === "WARN") return;
+        if (action === "AUTO_SUBMIT") { void submitAttempt(true, event.type); return; }
+        if (action === "TERMINATE") void terminateAttempt(event.type);
       },
-      (reason, eventType) => void recordAssessmentEvent(attempt.attemptId, eventType.toUpperCase(), reason),
-      4000
-    );
+    });
     const sync = () => void syncQueuedAnswers();
     window.addEventListener("online", sync);
     const style = document.createElement("style");
@@ -1579,19 +1588,13 @@ function AssessmentsView() {
     }
     document.addEventListener("contextmenu", blockContext);
     document.addEventListener("dragstart", blockDrag);
-    const streamWindow = window as Window & { __cyberAcademyScreenStream?: MediaStream; __cyberAcademyMediaStream?: MediaStream };
-    const requiredTracks = [...(streamWindow.__cyberAcademyScreenStream?.getTracks() ?? []), ...(streamWindow.__cyberAcademyMediaStream?.getTracks() ?? [])];
-    const requiredTrackEnded = () => void terminateAttempt("REQUIRED_PROCTORING_PERMISSION_STOPPED");
-    requiredTracks.forEach((track) => track.addEventListener("ended", requiredTrackEnded));
     return () => {
       cleanupKeyboard();
-      cleanupMonitor();
       window.removeEventListener("online", sync);
       document.removeEventListener("contextmenu", blockContext);
       document.removeEventListener("dragstart", blockDrag);
       document.body.classList.remove("secure-assessment-active");
       style.remove();
-      requiredTracks.forEach((track) => track.removeEventListener("ended", requiredTrackEnded));
       stopExamStreams();
       void exitFullscreen().catch(() => undefined);
     };
@@ -1625,8 +1628,10 @@ function AssessmentsView() {
       const data = (await response.json()) as SecureAttempt;
       setSecondsLeft(data.remainingSeconds);
       setAttempt(data);
+      answersRef.current = data.answers || {};
       setAnswers(data.answers || {});
     } catch (exc) {
+      await stopPreparedProctoring();
       await exitFullscreen().catch(() => undefined);
       setError(exc instanceof Error ? exc.message : "Unable to start assessment");
     } finally {
@@ -1634,27 +1639,29 @@ function AssessmentsView() {
     }
   }
 
-  async function recordAssessmentEvent(attemptId: number, eventType: string, reason: string) {
-    await fetch(`${apiBaseUrl}/api/assignments/${attemptId}/event`, {
+  async function recordProctoringEvents(attemptId: number, events: ProctoringEvent[]) {
+    await fetch(`${apiBaseUrl}/api/assignments/${attemptId}/events`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ event_type: eventType, reason, details: { timestamp: new Date().toISOString() } })
-    }).catch(() => undefined);
+      body: JSON.stringify({ events: events.map((event) => ({ event_type: event.type, reason: event.type, timestamp: new Date(event.timestamp).toISOString(), details: { severity: event.severity, confidence: event.confidence, ...event.metadata } })) }),
+    }).then((response) => { if (!response.ok) throw new Error("Proctoring events were not saved"); });
   }
 
   async function chooseAnswer(questionId: string, optionId: string) {
     if (!attempt || attempt.status !== "in_progress") return;
     const next = { ...answers, [questionId]: optionId };
+    answersRef.current = next;
     setAnswers(next);
     await saveAnswer(apiBaseUrl, attempt.attemptId, questionId, optionId);
   }
 
   async function terminateAttempt(reason: string) {
     if (!attempt || attempt.status !== "in_progress") return;
+    await getPreparedProctoringEngine()?.flush();
     const response = await fetch(`${apiBaseUrl}/api/assignments/${attempt.attemptId}/terminate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reason, answers })
+      body: JSON.stringify({ reason, answers: answersRef.current })
     });
     if (response.ok) {
       setAttempt((await response.json()) as SecureAttempt);
@@ -1663,10 +1670,11 @@ function AssessmentsView() {
 
   async function submitAttempt(autoSubmitted = false, reason = autoSubmitted ? "TIMER_EXPIRED" : "STUDENT_SUBMIT") {
     if (!attempt || attempt.status !== "in_progress") return;
+    await getPreparedProctoringEngine()?.flush();
     const response = await fetch(`${apiBaseUrl}/api/assignments/${attempt.attemptId}/submit`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reason, answers, auto_submitted: autoSubmitted })
+      body: JSON.stringify({ reason, answers: answersRef.current, auto_submitted: autoSubmitted })
     });
     if (response.ok) {
       setAttempt((await response.json()) as SecureAttempt);
@@ -1785,7 +1793,7 @@ function AssessmentsView() {
           </div>
         </aside>
       </div>
-      {readinessAssessment ? <ExamReadinessDialog title={readinessAssessment.title} onClose={() => setReadinessAssessment(null)} onProceed={() => startAssessment(readinessAssessment)} /> : null}
+      {readinessAssessment ? <ExamReadinessDialog title={readinessAssessment.title} config={configFromAssessmentSecurity(readinessAssessment.security)} onClose={() => setReadinessAssessment(null)} onProceed={() => startAssessment(readinessAssessment)} /> : null}
     </div>
   );
 }
@@ -1832,16 +1840,7 @@ function SecureExamRoom({ attempt, answers, secondsLeft, onChooseAnswer, onSubmi
   return <div className="fixed inset-0 z-[70] flex flex-col overflow-hidden bg-[#f4f6fa] text-[#101522]"><div className="shrink-0 border-b border-emerald-200 bg-emerald-50 py-1.5 text-center text-sm font-semibold text-emerald-700">Internet Status: {navigator.onLine ? "Online" : "Offline"}</div><header className="flex shrink-0 flex-wrap items-center gap-4 border-b bg-white px-5 py-3"><h1 className="min-w-[220px] flex-1 font-bold">{attempt.title}</h1><select className="h-10 min-w-[260px] rounded border px-3"><option>Section 1/1 | Questions ({attempt.questions.length})</option></select><span className="text-sm">Question {current + 1} / {attempt.questions.length}</span><span className="rounded border px-3 py-2 font-mono font-bold">{formatTimer(secondsLeft)}</span><button onClick={onSubmit} className="rounded bg-[#153998] px-5 py-2.5 font-bold text-white">Submit Test</button></header><ProctorCameraPreview/><div className="grid min-h-0 flex-1 grid-cols-[150px_minmax(0,1fr)]"><aside className="flex min-h-0 flex-col border-r bg-white"><div className="grid grid-cols-2 gap-2 overflow-y-auto p-3">{attempt.questions.map((item,index) => <button key={item.id} onClick={() => go(index)} className={`h-9 rounded border text-sm font-semibold ${current === index ? "border-[#3155ff] bg-[#3155ff] text-white" : answers[item.id] ? "border-emerald-300 bg-emerald-50 text-emerald-700" : bookmarked.has(item.id) ? "border-amber-300 bg-amber-50" : "border-slate-200"}`}>{index + 1}</button>)}</div><dl className="mt-auto space-y-2 border-t p-3 text-xs"><div className="flex justify-between"><dt>Answered</dt><dd>{answered}/{attempt.questions.length}</dd></div><div className="flex justify-between"><dt>Bookmarked</dt><dd>{bookmarked.size}/{attempt.questions.length}</dd></div><div className="flex justify-between"><dt>Skipped</dt><dd>{Math.max(0, visited.size - answered)}/{attempt.questions.length}</dd></div><div className="flex justify-between"><dt>Not Viewed</dt><dd>{Math.max(0, attempt.questions.length - visited.size)}/{attempt.questions.length}</dd></div><div className="flex justify-between"><dt>Saved in Server</dt><dd>{answered}/{attempt.questions.length}</dd></div></dl></aside><main className="grid min-h-0 grid-cols-1 lg:grid-cols-2"><section className="overflow-y-auto border-r bg-white p-6"><div className="flex items-center justify-between"><p className="text-sm font-bold">Question No: {current + 1} / {attempt.questions.length}</p><button onClick={toggleBookmark} className={`grid h-10 w-10 place-items-center rounded border ${bookmarked.has(question.id) ? "border-amber-400 bg-amber-50 text-amber-600" : "border-slate-300"}`} aria-label="Bookmark question"><Bookmark size={19} fill={bookmarked.has(question.id) ? "currentColor" : "none"} /></button></div><h2 className="mt-8 text-xl font-bold">Multiple Choice Question</h2><p className="mt-5 whitespace-pre-wrap text-base leading-7">{question.text}</p></section><section className="flex min-h-0 flex-col bg-white"><div className="border-b px-6 py-4 text-lg font-bold">Answer here</div><div className="flex-1 overflow-y-auto">{question.options.map((option) => <label key={option.id} className="flex cursor-pointer items-center gap-4 border-b px-6 py-5 hover:bg-slate-50"><input type="radio" name={question.id} checked={answers[question.id] === option.id} onChange={() => onChooseAnswer(question.id, option.id)} className="h-5 w-5" /><span>{option.text}</span></label>)}</div><div className="flex justify-between border-t p-4"><button disabled={current === 0} onClick={() => go(current - 1)} className="inline-flex items-center gap-2 rounded border px-4 py-2 disabled:opacity-40"><ChevronLeft size={17}/>Previous</button><button disabled={current === attempt.questions.length - 1} onClick={() => go(current + 1)} className="inline-flex items-center gap-2 rounded bg-[#3155ff] px-4 py-2 text-white disabled:opacity-40">Next<ChevronRight size={17}/></button></div></section></main></div></div>;
 }
 
-function ProctorCameraPreview() {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  useEffect(() => {
-    const stream = (window as Window & { __cyberAcademyMediaStream?: MediaStream }).__cyberAcademyMediaStream;
-    const video = videoRef.current;
-    if (video && stream) { video.srcObject = stream; void video.play(); }
-    return () => { if (video) video.srcObject = null; };
-  }, []);
-  return <aside className="fixed right-4 top-24 z-[75] w-48 overflow-hidden rounded-xl border-2 border-white bg-slate-950 shadow-2xl" aria-label="Live proctor camera preview"><video ref={videoRef} muted playsInline className="aspect-video w-full object-cover"/><div className="flex items-center justify-between bg-white px-3 py-2 text-[11px] font-bold text-slate-700"><span className="flex items-center gap-1.5"><span className="h-2 w-2 animate-pulse rounded-full bg-red-500"/>LIVE</span><span>Camera + mic</span></div></aside>;
-}
+function ProctorCameraPreview() { return <ProctoringPreview />; }
 function AssessmentEnded({ attempt, onBack }: { attempt: SecureAttempt; onBack: () => void }) {
   return (
     <div className="grid min-h-[calc(100vh-160px)] place-items-center">

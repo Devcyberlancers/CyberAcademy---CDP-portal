@@ -3,8 +3,11 @@
 import { Check, Loader2, Mic, MonitorUp, ShieldCheck, Video, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { enterFullscreen } from "@/lib/fullscreen-manager";
+import { getPreparedProctoringEngine, prepareProctoring, stopPreparedProctoring } from "@/lib/proctoring/proctoring-engine";
+import { stopProctoringStreams } from "@/lib/proctoring/media-streams";
+import type { ProctoringConfig } from "@/lib/proctoring/types";
 
-type Props={title:string;onClose:()=>void;onProceed:()=>void|Promise<void>};
+type Props={title:string;onClose:()=>void;onProceed:()=>void|Promise<void>;config?:Partial<ProctoringConfig>};
 type StreamWindow=Window&{__cyberAcademyScreenStream?:MediaStream;__cyberAcademyMediaStream?:MediaStream};
 const terms=[
  "It is not advisable to attempt tests from a mobile phone. Use a laptop or desktop.",
@@ -23,15 +26,14 @@ function environment(){
  return{browser:`${name} ${version}`,supported:name!=="Unsupported"&&version>=(name==="Safari"?12:60),desktop:!/Android|iPhone|iPad|iPod|Mobile/i.test(agent)&&innerWidth>=768,ist:new Date().getTimezoneOffset()===-330||["Asia/Calcutta","Asia/Kolkata"].includes(zone)};
 }
 export function stopExamStreams(){
- const streamWindow=window as StreamWindow;
- streamWindow.__cyberAcademyMediaStream?.getTracks().forEach((track)=>track.stop());
- streamWindow.__cyberAcademyScreenStream?.getTracks().forEach((track)=>track.stop());
- delete streamWindow.__cyberAcademyMediaStream;delete streamWindow.__cyberAcademyScreenStream;
+ void stopPreparedProctoring();
+ stopProctoringStreams();
 }
 
-export function ExamReadinessDialog({title,onClose,onProceed}:Props){
- const [stage,setStage]=useState(0),[checking,setChecking]=useState(false),[validity,setValidity]=useState<string[]>([]),[mediaReady,setMediaReady]=useState(false),[screenReady,setScreenReady]=useState(false),[error,setError]=useState(""),[countdown,setCountdown]=useState<number|null>(null);
- const videoRef=useRef<HTMLVideoElement>(null),env=environment();
+export function ExamReadinessDialog({title,onClose,onProceed,config}:Props){
+ const [stage,setStage]=useState(0),[checking,setChecking]=useState(false),[validity,setValidity]=useState<string[]>([]),[mediaReady,setMediaReady]=useState(false),[screenReady,setScreenReady]=useState(false),[monitoringReady,setMonitoringReady]=useState(false),[error,setError]=useState(""),[countdown,setCountdown]=useState<number|null>(null);
+ const videoRef=useRef<HTMLVideoElement>(null),configRef=useRef(config),env=environment();
+ configRef.current=config;
  const systemChecks=[
   ["Supported browser",env.browser,env.supported],
   ["Secure HTTPS connection","Protected browser permissions are available",window.isSecureContext||["localhost","127.0.0.1"].includes(location.hostname)],
@@ -42,8 +44,10 @@ export function ExamReadinessDialog({title,onClose,onProceed}:Props){
   ["IST timezone","GMT +05:30 required",env.ist],
  ] as const;
  const systemReady=systemChecks.every((item)=>item[2]);
+ useEffect(()=>{stopProctoringStreams();void stopPreparedProctoring()},[]);
  useEffect(()=>{if(stage!==1)return;let cancelled=false;setChecking(true);setValidity([]);const run=async()=>{for(const message of ["Validating test status","Checking attempt availability","Checking test schedule and duration","Confirming student authentication"]){if(cancelled)return;setValidity((items)=>[...items,message]);await new Promise((resolve)=>window.setTimeout(resolve,550))}if(!cancelled)setChecking(false)};void run();return()=>{cancelled=true}},[stage]);
  useEffect(()=>{if(stage!==3||!mediaReady||!videoRef.current)return;const stream=(window as StreamWindow).__cyberAcademyMediaStream;if(stream){videoRef.current.srcObject=stream;void videoRef.current.play()}},[stage,mediaReady]);
+ useEffect(()=>{if(stage!==5||!mediaReady||!screenReady)return;let cancelled=false;setChecking(true);setMonitoringReady(false);setError("");void prepareProctoring(configRef.current).then(()=>{if(!cancelled)setMonitoringReady(true)}).catch((reason:unknown)=>{if(!cancelled)setError(reason instanceof Error?reason.message:"Assessment monitoring could not be initialized.")}).finally(()=>{if(!cancelled)setChecking(false)});return()=>{cancelled=true}},[stage,mediaReady,screenReady]);
  function close(){stopExamStreams();onClose()}
  async function allowMedia(){
   setChecking(true);setError("");
@@ -66,9 +70,10 @@ export function ExamReadinessDialog({title,onClose,onProceed}:Props){
   finally{setChecking(false)}
  }
  async function start(){
-  if(!mediaReady||!screenReady||!systemReady)return;
+  if(!mediaReady||!screenReady||!systemReady||!monitoringReady)return;
   try{
    await enterFullscreen();
+   await getPreparedProctoringEngine()?.start();
    for(let value=3;value>0;value-=1){setCountdown(value);await new Promise((resolve)=>window.setTimeout(resolve,1000))}
    setCountdown(0);await onProceed();onClose();
   }catch{setCountdown(null);setError("Fullscreen permission is required. Keep camera, microphone, and screen sharing active.")}
@@ -83,10 +88,10 @@ export function ExamReadinessDialog({title,onClose,onProceed}:Props){
     {stage===2?<div className="mx-auto max-w-3xl divide-y rounded-lg border">{systemChecks.map(([label,detail,ok])=><div key={label} className="flex items-center gap-4 px-5 py-4"><span className={`grid h-6 w-6 place-items-center rounded border ${ok?"border-emerald-600 bg-emerald-600 text-white":"border-red-500 text-red-600"}`}>{ok?<Check size={15}/>:<X size={15}/>}</span><div><b>{label}</b><p className="text-sm text-slate-600">{detail}</p></div></div>)}</div>:null}
     {stage===3?<div className="mx-auto max-w-3xl"><div className="grid min-h-64 place-items-center overflow-hidden rounded-xl bg-slate-950">{mediaReady?<video ref={videoRef} muted playsInline className="max-h-72 w-full object-contain"/>:<Video className="h-24 w-24 text-white/60" strokeWidth={1}/>}</div><div className="mt-5 flex items-center gap-3 rounded-lg bg-[#f6f7fb] p-4"><Mic className={mediaReady?"text-emerald-600":"text-slate-500"}/><span>{mediaReady?"Camera and microphone are live and will remain on until submission.":"Allow camera and microphone to continue."}</span></div></div>:null}
     {stage===4?<div className="mx-auto max-w-3xl text-center"><MonitorUp className="mx-auto h-36 w-36 text-[#3155ff]" strokeWidth={1}/><div className="mt-6 rounded-lg bg-[#f6f7fb] p-5 text-left"><b>{screenReady?"Screen sharing active":"Screen access required"}</b><p className="mt-2 text-sm text-slate-600">{screenReady?"Do not stop sharing before submitting the test.":"Click Share Screen and select the screen or window containing this test."}</p></div></div>:null}
-    {stage===5?<div className="mx-auto max-w-xl py-16 text-center"><ShieldCheck className="mx-auto h-28 w-28 text-emerald-600"/><h3 className="mt-5 text-2xl font-bold">All checks completed</h3><p className="mt-3 text-slate-600">Starting enters fullscreen and shows a 3-second countdown. Leaving the tab or stopping required permissions submits the test as a violation.</p></div>:null}
+    {stage===5?<div className="mx-auto max-w-xl py-16 text-center"><ShieldCheck className={`mx-auto h-28 w-28 ${monitoringReady?"text-emerald-600":"text-[#3155ff]"}`}/><h3 className="mt-5 text-2xl font-bold">{checking?"Preparing assessment monitoring...":monitoringReady?"Proctoring ready.":"Assessment monitoring could not be initialized."}</h3><p className="mt-3 text-slate-600">MediaPipe face detection, YOLO person and phone detection, browser monitoring, audio activity, camera, microphone, and screen sharing are checked using real detector state.</p></div>:null}
     {error?<p className="mx-auto mt-5 max-w-3xl rounded-lg border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</p>:null}
    </div>
-   <footer className="border-t bg-white px-8 py-5"><div className="flex justify-end gap-3">{stage===0?<><button onClick={close} className="rounded border px-7 py-2.5">Close</button><button onClick={()=>setStage(1)} className="rounded bg-[#3155ff] px-7 py-2.5 font-bold text-white">Agree &amp; Proceed</button></>:null}{stage===1?<button disabled={checking} onClick={()=>setStage(2)} className="rounded bg-[#3155ff] px-7 py-2.5 font-bold text-white disabled:bg-slate-400">Continue</button>:null}{stage===2?<button disabled={!systemReady} onClick={()=>setStage(3)} className="rounded bg-[#3155ff] px-7 py-2.5 font-bold text-white disabled:bg-slate-400">Continue</button>:null}{stage===3?<><button onClick={()=>void allowMedia()} disabled={checking} className="rounded border border-[#3155ff] px-6 py-2.5 text-[#3155ff]">{checking?"Checking...":mediaReady?"Check again":"Allow camera & microphone"}</button><button disabled={!mediaReady} onClick={()=>setStage(4)} className="rounded bg-[#3155ff] px-7 py-2.5 font-bold text-white disabled:bg-slate-400">Continue</button></>:null}{stage===4?<><button onClick={()=>void allowScreen()} disabled={checking} className="rounded border border-[#3155ff] px-6 py-2.5 text-[#3155ff]">{checking?"Checking...":screenReady?"Share again":"Share Screen"}</button><button disabled={!screenReady} onClick={()=>setStage(5)} className="rounded bg-[#3155ff] px-7 py-2.5 font-bold text-white disabled:bg-slate-400">Continue</button></>:null}{stage===5?<button onClick={()=>void start()} className="rounded bg-[#153998] px-8 py-2.5 font-bold text-white">Enter Fullscreen &amp; Start</button>:null}</div><div className="mt-5 flex justify-center gap-3">{Array.from({length:6},(_,index)=><span key={index} className={`h-1.5 w-6 rounded-full ${index===stage?"bg-[#3155ff]":"bg-slate-300"}`}/>)}</div></footer>
+   <footer className="border-t bg-white px-8 py-5"><div className="flex justify-end gap-3">{stage===0?<><button onClick={close} className="rounded border px-7 py-2.5">Close</button><button onClick={()=>setStage(1)} className="rounded bg-[#3155ff] px-7 py-2.5 font-bold text-white">Agree &amp; Proceed</button></>:null}{stage===1?<button disabled={checking} onClick={()=>setStage(2)} className="rounded bg-[#3155ff] px-7 py-2.5 font-bold text-white disabled:bg-slate-400">Continue</button>:null}{stage===2?<button disabled={!systemReady} onClick={()=>setStage(3)} className="rounded bg-[#3155ff] px-7 py-2.5 font-bold text-white disabled:bg-slate-400">Continue</button>:null}{stage===3?<><button onClick={()=>void allowMedia()} disabled={checking} className="rounded border border-[#3155ff] px-6 py-2.5 text-[#3155ff]">{checking?"Checking...":mediaReady?"Check again":"Allow camera & microphone"}</button><button disabled={!mediaReady} onClick={()=>setStage(4)} className="rounded bg-[#3155ff] px-7 py-2.5 font-bold text-white disabled:bg-slate-400">Continue</button></>:null}{stage===4?<><button onClick={()=>void allowScreen()} disabled={checking} className="rounded border border-[#3155ff] px-6 py-2.5 text-[#3155ff]">{checking?"Checking...":screenReady?"Share again":"Share Screen"}</button><button disabled={!screenReady} onClick={()=>setStage(5)} className="rounded bg-[#3155ff] px-7 py-2.5 font-bold text-white disabled:bg-slate-400">Continue</button></>:null}{stage===5?<button disabled={!monitoringReady||checking} onClick={()=>void start()} className="rounded bg-[#153998] px-8 py-2.5 font-bold text-white disabled:bg-slate-400">{checking?"Loading models...":"Enter Fullscreen & Start"}</button>:null}</div><div className="mt-5 flex justify-center gap-3">{Array.from({length:6},(_,index)=><span key={index} className={`h-1.5 w-6 rounded-full ${index===stage?"bg-[#3155ff]":"bg-slate-300"}`}/>)}</div></footer>
   </div>
  </section>
 }

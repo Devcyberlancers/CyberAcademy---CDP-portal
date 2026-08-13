@@ -189,6 +189,13 @@ export type AdminAssessmentAttempt = {
 
 export type AdminAssessmentAttemptDetail = AdminAssessmentAttempt & {
   questions: number;
+  events: Array<{
+    eventId: number;
+    eventType: string;
+    reason: string;
+    details: Record<string, unknown>;
+    createdAt: string;
+  }>;
   answers: Array<{
     questionId: string;
     question: string;
@@ -347,6 +354,13 @@ export type StudentLearningAttempt = {
   ip_address?: string;
   browser?: string;
   operating_system?: string;
+  proctoring_events?: Array<{
+    event_type: string;
+    reason?: string;
+    timestamp?: string;
+    severity?: string;
+    details?: Record<string, unknown>;
+  }>;
 };
 
 export type StudentLearningAssessment = {

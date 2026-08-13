@@ -11,6 +11,8 @@ export default [
     ignores: [
       ".next/**",
       "frontend/.next/**",
+      "frontend/.next-dev/**",
+      "frontend/public/models/**",
       "node_modules/**",
       "backend/**",
       "database/**",

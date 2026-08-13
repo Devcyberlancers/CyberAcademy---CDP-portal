@@ -435,7 +435,7 @@ export class StudentPortalService {
 
   async submitModuleQuiz(
     courseId: number, email: string, moduleIndex: number, answers: Record<string, string>,
-    metadata: { startedAt?: string; tabSwitches?: number; browser?: string; operatingSystem?: string; violationReason?: string; ip?: string; userAgent?: string } = {},
+    metadata: { startedAt?: string; tabSwitches?: number; browser?: string; operatingSystem?: string; violationReason?: string; ip?: string; userAgent?: string; proctoringEvents?: Array<Record<string, unknown>> } = {},
   ) {
     const modules = await this.snapshot(`course-editor-modules-${courseId}-v2`, []) as Array<Record<string, any>>;
     const module = modules[moduleIndex];
@@ -451,7 +451,7 @@ export class StudentPortalService {
     const violationReason = metadata.violationReason?.trim() || '';
     const passed = !violationReason && score >= requiredScore;
     const key = `course-progress:${courseId}:${email.toLowerCase()}`;
-    type QuizAttempt = { attemptNumber: number; status?: 'completed' | 'auto_submitted'; startedAt: string; endedAt: string; durationSeconds: number; score: number; earnedMarks: number; totalMarks: number; passed: boolean; tabSwitches: number; browser: string; operatingSystem: string; ipAddress: string; violations?: number; violationReason?: string };
+    type QuizAttempt = { attemptNumber: number; status?: 'completed' | 'auto_submitted'; startedAt: string; endedAt: string; durationSeconds: number; score: number; earnedMarks: number; totalMarks: number; passed: boolean; tabSwitches: number; browser: string; operatingSystem: string; ipAddress: string; violations?: number; violationReason?: string; proctoringEvents?: Array<Record<string, unknown>> };
     type QuizProgress = { score: number; passed: boolean; submitted_at: string; attempts?: QuizAttempt[] };
     const current = await this.snapshot(key, {}) as { videos?: number[]; quizzes?: Record<string, QuizProgress> };
     const previous = current.quizzes?.[String(moduleIndex)];
@@ -463,7 +463,8 @@ export class StudentPortalService {
     const startedAt = Number.isNaN(parsedStart.getTime()) || parsedStart > endedAt ? endedAt : parsedStart;
     const agent = metadata.userAgent || '';
     const detectedBrowser = agent.includes('Edg/') ? 'Microsoft Edge' : agent.includes('Chrome/') ? 'Chrome' : agent.includes('Firefox/') ? 'Firefox' : agent.includes('Safari/') ? 'Safari' : 'Browser';
-    const attempt: QuizAttempt = { attemptNumber: attempts.length + 1, status: violationReason ? 'auto_submitted' : 'completed', startedAt: startedAt.toISOString(), endedAt: endedAt.toISOString(), durationSeconds: Math.max(0, Math.floor((endedAt.getTime() - startedAt.getTime()) / 1000)), score, earnedMarks, totalMarks, passed, tabSwitches: Math.max(0, Number(metadata.tabSwitches) || 0), browser: metadata.browser?.trim() || detectedBrowser, operatingSystem: metadata.operatingSystem?.trim() || 'Unknown', ipAddress: metadata.ip?.trim() || 'Unavailable', violations: violationReason ? 1 : 0, violationReason: violationReason || undefined };
+    const proctoringEvents = Array.isArray(metadata.proctoringEvents) ? metadata.proctoringEvents.slice(-100) : [];
+    const attempt: QuizAttempt = { attemptNumber: attempts.length + 1, status: violationReason ? 'auto_submitted' : 'completed', startedAt: startedAt.toISOString(), endedAt: endedAt.toISOString(), durationSeconds: Math.max(0, Math.floor((endedAt.getTime() - startedAt.getTime()) / 1000)), score, earnedMarks, totalMarks, passed, tabSwitches: Math.max(0, Number(metadata.tabSwitches) || 0), browser: metadata.browser?.trim() || detectedBrowser, operatingSystem: metadata.operatingSystem?.trim() || 'Unknown', ipAddress: metadata.ip?.trim() || 'Unavailable', violations: proctoringEvents.filter((event) => event.severity === 'warning' || event.severity === 'critical').length || (violationReason ? 1 : 0), violationReason: violationReason || undefined, proctoringEvents };
     attempts.push(attempt);
     const quizzes = { ...(current.quizzes ?? {}), [String(moduleIndex)]: { score: Math.max(Number(previous?.score) || 0, score), passed: Boolean(previous?.passed) || passed, submitted_at: endedAt.toISOString(), attempts } };
     await this.prisma.admin_snapshots.upsert({ where: { key }, create: { key, payload: JSON.stringify({ videos: current.videos ?? [], quizzes }), updated_by: email, updated_at: endedAt }, update: { payload: JSON.stringify({ videos: current.videos ?? [], quizzes }), updated_by: email, updated_at: endedAt } });

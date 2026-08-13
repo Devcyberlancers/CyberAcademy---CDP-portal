@@ -247,6 +247,24 @@ export class AssessmentsService {
     return { ok: true };
   }
 
+  async events(id: number, events: Array<{ event_type: string; reason?: string; details?: Record<string, any>; timestamp?: string }>) {
+    const attempt = await this.prisma.assignment_attempts.findUnique({ where: { id }, select: { id: true } });
+    if (!attempt) throw new NotFoundException('Attempt not found');
+    if (!Array.isArray(events) || events.length > 100) throw new UnprocessableEntityException('A proctoring event batch may contain at most 100 events');
+    const rows = events.map((event) => {
+      const eventType = String(event.event_type || '').trim().slice(0, 80);
+      if (!eventType) throw new UnprocessableEntityException('Every proctoring event requires an event_type');
+      const timestamp = event.timestamp ? new Date(event.timestamp) : new Date();
+      return {
+        attempt_id: id, event_type: eventType, reason: String(event.reason || '').trim().slice(0, 160),
+        details_json: event.details && typeof event.details === 'object' ? event.details : {},
+        created_at: Number.isNaN(timestamp.getTime()) ? new Date() : timestamp,
+      };
+    });
+    if (rows.length) await this.prisma.assignment_events.createMany({ data: rows });
+    return { ok: true, stored: rows.length };
+  }
+
   private score(questions: any[], answers: Record<string, string>) {
     const totalMarks = questions.reduce((sum, question) => sum + Math.max(1, Number(question.marks) || 1), 0);
     const earnedMarks = questions.reduce((sum, question) => sum + (answers[question.id] === question.correct_option_id ? Math.max(1, Number(question.marks) || 1) : 0), 0);

@@ -2,9 +2,12 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, BookOpen, Bookmark, CalendarDays, ChevronLeft, ChevronRight, CheckCircle2, ClipboardCheck, Lock, Medal, Mic, Search, Trophy, X } from "lucide-react";
+import { ArrowLeft, BookOpen, Bookmark, CalendarDays, ChevronLeft, ChevronRight, CheckCircle2, ClipboardCheck, Lock, Medal, Search, Trophy, X } from "lucide-react";
 import { DashboardShell, type StudentSection } from "@/components/dashboard-shell";
 import { ExamReadinessDialog } from "@/components/exam-readiness-dialog";
+import { ProctoringPreview } from "@/components/proctoring-preview";
+import { getPreparedProctoringEngine, stopPreparedProctoring } from "@/lib/proctoring/proctoring-engine";
+import type { ProctoringEvent } from "@/lib/proctoring/types";
 import { defaultStudentAccount, fetchStudentProfile, readStudentAccount, type StudentAccount } from "@/lib/student-account";
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
@@ -175,7 +178,7 @@ export default function StudentCoursePage({ params }: { params: Promise<{ id: st
     setActiveQuizIndex(moduleIndex);
   }
 
-  async function submitModuleQuiz(metadata?: { startedAt: string; tabSwitches: number; browser: string; operatingSystem: string; violationReason?: string }) {
+  async function submitModuleQuiz(metadata?: { startedAt: string; tabSwitches: number; browser: string; operatingSystem: string; violationReason?: string; proctoringEvents?: ProctoringEvent[] }) {
     if (activeQuizIndex === null) return false;
     const token = window.localStorage.getItem("cyber-academy-auth-token");
     const response = await fetch(`${apiBaseUrl}/api/courses/${encodeURIComponent(courseId)}/modules/quiz-submit`, {
@@ -192,6 +195,7 @@ export default function StudentCoursePage({ params }: { params: Promise<{ id: st
         browser: metadata?.browser,
         operating_system: metadata?.operatingSystem,
         violation_reason: metadata?.violationReason,
+        proctoring_events: metadata?.proctoringEvents ?? [],
       }),
     });
     if (!response.ok) {
@@ -215,7 +219,7 @@ export default function StudentCoursePage({ params }: { params: Promise<{ id: st
         </Link>
 
         <CourseHeader course={data.course} courseProgress={courseProgress} assessmentCount={testItems.length} moduleCount={data.modules.length} />
-        {testItems.length ? <CourseAssessmentWorkspace assessments={testItems} courseProgress={courseProgress} onInstructions={setInstructionAssessment} onTakeTest={setPreflightAssessment} /> : null}
+        {testItems.length ? <CourseAssessmentWorkspace assessments={testItems} courseProgress={courseProgress} onInstructions={setInstructionAssessment} onTakeTest={(assessment) => { if (assessment.assignmentId.startsWith("module:")) setPreflightAssessment(assessment); else window.location.href = `/dashboard/student?section=assessments&assignment=${encodeURIComponent(assessment.assignmentId)}&launch=1`; }} /> : null}
         {activeQuizIndex !== null ? (
           <CourseQuiz
             module={data.modules[activeQuizIndex]}
@@ -239,7 +243,7 @@ export default function StudentCoursePage({ params }: { params: Promise<{ id: st
             onClose={() => setPreflightAssessment(null)}
             onProceed={() => {
               if (preflightAssessment.assignmentId.startsWith("module:")) startModuleQuiz(Number(preflightAssessment.assignmentId.slice("module:".length)));
-              else window.location.href = `/dashboard/student?section=assessments&assignment=${encodeURIComponent(preflightAssessment.assignmentId)}&preflight=1`;
+              else window.location.href = `/dashboard/student?section=assessments&assignment=${encodeURIComponent(preflightAssessment.assignmentId)}&launch=1`;
             }}
           />
         ) : null}
@@ -568,7 +572,7 @@ function CourseMessage({ message }: { message: string }) {
   );
 }
 
-function CourseQuiz({ module, answers, onChoose, error, result, onSubmit, onClose }: { module?: CourseModule; answers: Record<string, string>; onChoose: (index: number, value: string) => void; error: string; result: { score: number; passed: boolean; violation?: string | null } | null; onSubmit: (metadata: { startedAt: string; tabSwitches: number; browser: string; operatingSystem: string; violationReason?: string }) => Promise<boolean>; onClose: () => void }) {
+function CourseQuiz({ module, answers, onChoose, error, result, onSubmit, onClose }: { module?: CourseModule; answers: Record<string, string>; onChoose: (index: number, value: string) => void; error: string; result: { score: number; passed: boolean; violation?: string | null } | null; onSubmit: (metadata: { startedAt: string; tabSwitches: number; browser: string; operatingSystem: string; violationReason?: string; proctoringEvents?: ProctoringEvent[] }) => Promise<boolean>; onClose: () => void }) {
   const [current, setCurrent] = useState(0);
   const [bookmarked, setBookmarked] = useState<Set<number>>(() => new Set());
   const [visited, setVisited] = useState<Set<number>>(() => new Set([0]));
@@ -576,79 +580,64 @@ function CourseQuiz({ module, answers, onChoose, error, result, onSubmit, onClos
   const [secondsLeft, setSecondsLeft] = useState(Math.max(1, module?.durationMinutes || 60) * 60);
   const startedAt = useRef(new Date().toISOString());
   const tabSwitches = useRef(0);
+  const proctoringEvents = useRef<ProctoringEvent[]>([]);
   const submitting = useRef(false);
+  const latestOnSubmit = useRef(onSubmit);
+  latestOnSubmit.current = onSubmit;
   const questions = module?.generatedQuestions ?? [];
   const question = questions[current];
   const submit = async (violationReason?: string) => {
     if(submitting.current||result)return;
     submitting.current=true;
+    await getPreparedProctoringEngine()?.flush();
     const environment = detectClientEnvironment();
-    const saved=await onSubmit({
+    const saved=await latestOnSubmit.current({
       startedAt: startedAt.current,
       tabSwitches: tabSwitches.current,
       browser: environment.browser,
       operatingSystem: environment.os,
       violationReason,
+      proctoringEvents: proctoringEvents.current,
     });
     if(!saved)submitting.current=false;
   };
+  const submitRef = useRef(submit);
+  submitRef.current = submit;
   useEffect(() => {
     if (result) return;
     const timer = window.setInterval(() => setSecondsLeft((value) => Math.max(0, value - 1)), 1000);
     return () => window.clearInterval(timer);
   }, [result]);
   useEffect(() => {
-    if (secondsLeft === 0 && !result) void submit("TIME_EXPIRED");
+    if (secondsLeft === 0 && !result) void submitRef.current("TIME_EXPIRED");
   }, [secondsLeft, result]);
-  useEffect(() => {
-    const screenWindow=window as Window & { __cyberAcademyScreenStream?: MediaStream; __cyberAcademyMediaStream?: MediaStream };
-    const stream=screenWindow.__cyberAcademyScreenStream;
-    const track=stream?.getVideoTracks()[0];
-    const mediaTracks=screenWindow.__cyberAcademyMediaStream?.getTracks()??[];
-    const sharingEnded=()=>{
-      if(result)return;
-      tabSwitches.current+=1;
-      void submit("SCREEN_SHARE_STOPPED");
-    };
-    track?.addEventListener("ended",sharingEnded);
-    const mediaEnded=()=>{if(!result)void submit("CAMERA_OR_MICROPHONE_STOPPED")};
-    mediaTracks.forEach((item)=>item.addEventListener("ended",mediaEnded));
-    return()=>{track?.removeEventListener("ended",sharingEnded);mediaTracks.forEach((item)=>item.removeEventListener("ended",mediaEnded))};
-  },[result]);
-  useEffect(() => {
-    if(!result)return;
-    const screenWindow=window as Window & { __cyberAcademyScreenStream?: MediaStream; __cyberAcademyMediaStream?: MediaStream };
-    screenWindow.__cyberAcademyScreenStream?.getTracks().forEach((track)=>track.stop());
-    screenWindow.__cyberAcademyMediaStream?.getTracks().forEach((track)=>track.stop());
-    delete screenWindow.__cyberAcademyScreenStream;delete screenWindow.__cyberAcademyMediaStream;
-  },[result]);
   useEffect(() => {
     const block = (event: Event) => event.preventDefault();
     const keys = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && ["c", "v", "x", "a"].includes(event.key.toLowerCase())) event.preventDefault();
     };
-    const hidden = () => {if(document.hidden&&!result){tabSwitches.current+=1;void submit("TAB_SWITCH")}};
-    const blurred = () => {if(!result){tabSwitches.current+=1;void submit("WINDOW_FOCUS_LOST")}};
-    const fullscreen = () => {if(!document.fullscreenElement&&!result)void submit("FULLSCREEN_EXIT")};
     document.addEventListener("copy", block);
     document.addEventListener("cut", block);
     document.addEventListener("paste", block);
     document.addEventListener("contextmenu", block);
     document.addEventListener("keydown", keys);
-    document.addEventListener("visibilitychange", hidden);
-    window.addEventListener("blur",blurred);
-    document.addEventListener("fullscreenchange",fullscreen);
     return () => {
       document.removeEventListener("copy", block);
       document.removeEventListener("cut", block);
       document.removeEventListener("paste", block);
       document.removeEventListener("contextmenu", block);
       document.removeEventListener("keydown", keys);
-      document.removeEventListener("visibilitychange", hidden);
-      window.removeEventListener("blur",blurred);
-      document.removeEventListener("fullscreenchange",fullscreen);
     };
   }, [result]);
+  useEffect(() => {
+    const engine = getPreparedProctoringEngine();
+    engine?.configureSession({
+      onEvents: (events) => { proctoringEvents.current.push(...events); tabSwitches.current += events.filter((event) => event.type === "TAB_SWITCH" || event.type === "WINDOW_BLUR").length; },
+      onPolicyAction: (action, event) => { if (action === "AUTO_SUBMIT" || action === "TERMINATE") void submitRef.current(event.type); },
+    });
+    return () => { void stopPreparedProctoring(); };
+  }, []);
+  useEffect(() => { if (result) void stopPreparedProctoring(); }, [result]);
   function go(index: number) {
     const safe = Math.max(0, Math.min(questions.length - 1, index));
     setCurrent(safe);
@@ -789,25 +778,7 @@ function CourseQuiz({ module, answers, onChoose, error, result, onSubmit, onClos
     </section>
   );
 }
-function ProctorPreview(){
- const videoRef=useRef<HTMLVideoElement>(null);
- const [level,setLevel]=useState(0),[warning,setWarning]=useState("");
- useEffect(()=>{
-  const streamWindow=window as Window&{__cyberAcademyMediaStream?:MediaStream};
-  const stream=streamWindow.__cyberAcademyMediaStream;
-  if(!stream)return;
-  if(videoRef.current){videoRef.current.srcObject=stream;void videoRef.current.play()}
-  const AudioContextClass=window.AudioContext;
-  if(!AudioContextClass||!stream.getAudioTracks().length)return;
-  const context=new AudioContextClass(),analyser=context.createAnalyser(),source=context.createMediaStreamSource(stream),samples=new Uint8Array(analyser.fftSize);
-  let frame=0,loudFrames=0;
-  source.connect(analyser);
-  const measure=()=>{analyser.getByteTimeDomainData(samples);let sum=0;for(const sample of samples){const value=(sample-128)/128;sum+=value*value}const next=Math.min(100,Math.round(Math.sqrt(sum/samples.length)*320));setLevel(next);loudFrames=next>45?loudFrames+1:Math.max(0,loudFrames-2);if(loudFrames>80){setWarning("High background audio detected. Remain silent and do not communicate with others.");loudFrames=0}frame=requestAnimationFrame(measure)};
-  frame=requestAnimationFrame(measure);
-  return()=>{cancelAnimationFrame(frame);source.disconnect();void context.close()};
- },[]);
- return <aside className="w-full overflow-hidden rounded-lg border border-slate-700 bg-slate-950 text-white shadow"><div className="relative aspect-video bg-black"><video ref={videoRef} muted playsInline className="h-full w-full object-cover"/><span className="absolute left-2 top-2 rounded bg-red-600 px-2 py-1 text-[10px] font-bold">PROCTORING LIVE</span></div><div className="p-3"><div className="flex items-center gap-2 text-xs"><Mic size={14}/><span>Microphone</span><span className="ml-auto">{level}%</span></div><div className="mt-2 h-1.5 overflow-hidden rounded bg-white/20"><div className="h-full bg-emerald-400 transition-all" style={{width:`${level}%`}}/></div>{warning?<p className="mt-2 rounded bg-amber-500/20 p-2 text-[11px] leading-4 text-amber-200">{warning}</p>:null}</div></aside>;
-}
+function ProctorPreview(){ return <ProctoringPreview compact />; }
 function CourseEndConfirmation({ total, answered, visited, onCancel, onConfirm }: { total: number; answered: number; visited: number; onCancel: () => void; onConfirm: () => void }) {
   const [word, setWord] = useState("");
   return (
