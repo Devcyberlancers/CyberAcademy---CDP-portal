@@ -33,6 +33,7 @@ type StandaloneAssessment = {
   passPercent: number;
   sections: string;
   safeMode: true;
+  cameraRequired: boolean;
   questions: AssessmentQuestion[];
 };
 
@@ -98,6 +99,7 @@ const seedAssessments: StandaloneAssessment[] = [
     passPercent: 60,
     sections: "Aptitude + Logical Reasoning + Coding",
     safeMode: true,
+    cameraRequired: true,
     questions: [
       { id: "Q1", title: "Percentage", text: "A candidate scores 72 marks out of 90. What percentage did the candidate score?", type: "MCQ", section: "Quantitative Aptitude", marks: 2, options: ["70%", "75%", "80%", "90%"], correctAnswer: "80%", explanation: "(72 / 90) × 100 = 80%." },
       { id: "Q2", title: "Ratio", text: "The ratio of boys to girls in a class is 3:5. If there are 40 students, how many are girls?", type: "MCQ", section: "Quantitative Aptitude", marks: 2, options: ["15", "20", "25", "30"], correctAnswer: "25", explanation: "There are 8 total parts; each part is 5 students, so girls = 5 × 5 = 25." },
@@ -184,7 +186,7 @@ export default function AssessmentsPage() {
   const [saveNotice, setSaveNotice] = useState("");
   const [resultsLoading, setResultsLoading] = useState(false);
   const [resultsError, setResultsError] = useState("");
-  const blankAssessment: StandaloneAssessment = { id: "", title: "", description: "", durationMinutes: 60, maxAttempts: 1, passPercent: 60, sections: "", safeMode: true, questions: [] };
+  const blankAssessment: StandaloneAssessment = { id: "", title: "", description: "", durationMinutes: 60, maxAttempts: 1, passPercent: 60, sections: "", safeMode: true, cameraRequired: true, questions: [] };
   const selectedAssessment = assessments.find((item) => item.id === selectedAssessmentId) ?? assessments[0] ?? blankAssessment;
   const selectedSubmission = submissions.find((item) => item.id === selectedSubmissionId);
 
@@ -309,6 +311,7 @@ export default function AssessmentsPage() {
       passPercent: 60,
       sections: "",
       safeMode: true,
+      cameraRequired: true,
       questions: []
     };
     setAssessments((current) => [next, ...current]);
@@ -375,7 +378,7 @@ export default function AssessmentsPage() {
                   <button key={assessment.id} onClick={() => setSelectedAssessmentId(assessment.id)} className={`w-full rounded-md border p-4 text-left ${selectedAssessment.id === assessment.id ? "border-portal-blue bg-blue-50" : "border-portal-line"}`}>
                     <p className="font-bold text-slate-950">{assessment.title}</p>
                     <p className="mt-1 text-xs text-slate-500">{assessment.questions.length} questions / {assessment.passPercent}% pass</p>
-                    <p className="mt-2 flex items-center gap-1 text-xs font-bold text-emerald-700"><ShieldCheck size={14} /> Safe mode enabled</p>
+                    <p className="mt-2 flex items-center gap-1 text-xs font-bold text-emerald-700"><ShieldCheck size={14} /> Safe mode · Camera {assessment.cameraRequired === false ? "off" : "on"}</p>
                   </button>
                 ))}
                 {!assessments.length ? <p className="rounded-md border border-dashed border-portal-line p-5 text-center text-sm font-semibold text-slate-500">No assessments yet. Click Create to add one.</p> : null}
@@ -390,6 +393,7 @@ export default function AssessmentsPage() {
                 <label><span className="mb-1 block text-sm font-bold text-slate-600">Duration Minutes</span><input type="number" value={selectedAssessment.durationMinutes} onChange={(event) => updateAssessment({ durationMinutes: Number(event.target.value) })} className="h-11 w-full rounded-md border border-portal-line px-3" /></label>
                 <label><span className="mb-1 block text-sm font-bold text-slate-600">Pass %</span><input type="number" value={selectedAssessment.passPercent} onChange={(event) => updateAssessment({ passPercent: Number(event.target.value) })} className="h-11 w-full rounded-md border border-portal-line px-3" /></label>
                 <label><span className="mb-1 block text-sm font-bold text-slate-600">Maximum Attempts</span><input type="number" min={1} max={20} value={selectedAssessment.maxAttempts ?? 1} onChange={(event) => updateAssessment({ maxAttempts: Math.max(1, Math.min(20, Number(event.target.value) || 1)) })} className="h-11 w-full rounded-md border border-portal-line px-3" /></label>
+                <label className="flex min-h-11 items-center gap-3 rounded-md border border-portal-line px-4"><input type="checkbox" checked={selectedAssessment.cameraRequired !== false} onChange={(event) => updateAssessment({ cameraRequired: event.target.checked })} className="h-5 w-5 accent-portal-blue"/><span><b className="block text-sm text-slate-800">Approve camera monitoring</b><small className="text-slate-500">When off, camera and phone detection are not requested.</small></span></label>
                 <label className="lg:col-span-2"><span className="mb-1 block text-sm font-bold text-slate-600">Instructions</span><textarea value={selectedAssessment.description} onChange={(event) => updateAssessment({ description: event.target.value })} className="h-24 w-full rounded-md border border-portal-line p-3" /></label>
               </div>
 

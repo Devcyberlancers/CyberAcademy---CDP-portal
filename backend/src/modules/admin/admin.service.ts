@@ -1067,6 +1067,7 @@ export class AdminService {
       await tx.portal_access_settings.deleteMany({ where: { scope_key: email } });
       await tx.email_otps.deleteMany({ where: { email } });
       await tx.password_reset_tokens.deleteMany({ where: { email } });
+      await tx.written_exam_results.deleteMany({ where: { student_email: email } });
       await tx.student_profiles.delete({ where: { id } });
       if (user) await tx.users.delete({ where: { id: user.id } });
       await tx.audit_logs.create({ data: { actor_email: actorEmail, action: 'STUDENT_ACCOUNT_PERMANENTLY_DELETED', target_type: 'student', target_id: String(id), details: JSON.stringify({ email }), created_at: new Date() } });

@@ -1,0 +1,3 @@
+batch,course_id,course_title,exam_name,student_email,registration_number,student_name,attempt_number,score,max_score,attempted_at
+2026 A,1,Cybersecurity Fundamentals,Written Midterm,student@cyberlancers.in,CA001,Student Name,1,42,50,2026-08-13 10:00
+2026 A,,,Batch Aptitude Test,student@cyberlancers.in,CA001,Student Name,1,78,100,2026-08-13 14:00

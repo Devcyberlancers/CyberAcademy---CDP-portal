@@ -38,6 +38,7 @@ type ModuleItem = {
   imageName?: string;
   resources: string[];
   unlockRule: "manual" | "video_quiz";
+  cameraRequired: boolean;
   generatedQuestions: QuizQuestion[];
 };
 type StoredAssessment = { id?: string } & Record<string, unknown>;
@@ -68,6 +69,7 @@ function normalizeModule(module: Partial<ModuleItem> & { title: string }): Modul
     imageName: module.imageName,
     resources: module.resources ?? [],
     unlockRule: module.unlockRule === "manual" ? "manual" : "video_quiz",
+    cameraRequired: module.cameraRequired ?? true,
     generatedQuestions: (module.generatedQuestions ?? []).map((question) => ({
       question: question.question,
       options: question.options?.length ? question.options.slice(0, 4) : ["", "", "", ""],
@@ -405,6 +407,7 @@ export function CourseContentBuilder({ courseId }: CourseContentBuilderProps) {
                 </label>
               </div>
               <p className="rounded-md bg-blue-50 p-3 text-sm font-semibold text-slate-700">{completionRule}</p>
+              <label className="flex items-center gap-3 rounded-md border border-portal-line bg-slate-50 p-4"><input type="checkbox" checked={draft.cameraRequired} onChange={(event) => setDraft({ ...draft, cameraRequired: event.target.checked })} className="h-5 w-5 accent-portal-blue"/><span><b className="block text-sm text-slate-900">Approve camera for this module test</b><small className="text-slate-500">When disabled, students are not asked for camera access and phone detection is off.</small></span></label>
 
               <div className="rounded-md border border-portal-line">
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-portal-line px-4 py-3">

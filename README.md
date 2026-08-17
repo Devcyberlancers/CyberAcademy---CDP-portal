@@ -267,6 +267,25 @@ The CSV importer previews:
 
 No account or email is created until the administrator selects **Approve, Create & Send Emails**. Download the CSV template from the interface and preserve its column headings.
 
+## Course and batch leaderboards
+
+Open **Admin -> Courses** and choose **Batch Leaderboard & Written Results** for
+the selected batch, or choose **Leaderboard** on an individual course. Student
+course pages show the matching live course ranking, while the Student Courses
+tab exposes the complete ranking for that student's batch.
+
+Written examination results can be imported from the repository CSV template
+at templates/written-exam-leaderboard-template.csv, or by downloading the same
+template from the admin leaderboard. Use either student_email or
+registration_number to identify a student. Set course_id or course_title to
+include the written exam in a course leaderboard; leave both blank for a
+batch-wide written exam. Re-importing the same batch, exam, student, and attempt
+updates the saved result instead of creating a duplicate.
+
+The leaderboard table is created by Prisma. Production deployments must use
+the existing backend command npm --prefix backend run deploy:build so the
+database schema is synchronized before the API build starts.
+
 ## Validation
 
 Run all checks before opening a pull request:

@@ -24,6 +24,7 @@ type CourseAssessment = {
   passPercent: number;
   maxAttempts: number;
   requiredToUnlock: boolean;
+  cameraRequired: boolean;
   questions: CourseQuestion[];
 };
 
@@ -63,6 +64,7 @@ function normalizeAssessment(assessment: CourseAssessment): CourseAssessment {
     passPercent: assessment.passPercent ?? 60,
     maxAttempts: Math.max(1, Math.min(20, assessment.maxAttempts ?? 3)),
     requiredToUnlock: assessment.requiredToUnlock ?? true,
+    cameraRequired: assessment.cameraRequired ?? true,
     questions: assessment.questions.map((question, index) => normalizeQuestion(question, index, assessment.module))
   };
 }
@@ -147,6 +149,7 @@ export function CourseAssessmentCurriculum({ courseId }: { courseId: string }) {
       passPercent: 60,
       maxAttempts: 3,
       requiredToUnlock: true,
+      cameraRequired: true,
       questions: []
     };
     setAssessments((current) => [next, ...current]);
@@ -295,6 +298,7 @@ export function CourseAssessmentCurriculum({ courseId }: { courseId: string }) {
               </button>
             </div>
           </div>
+          <label className="flex items-center gap-3 rounded-md border border-portal-line bg-slate-50 p-4"><input type="checkbox" checked={selected.cameraRequired !== false} onChange={(event) => updateAssessment(selected.id, { cameraRequired: event.target.checked })} className="h-5 w-5 accent-portal-blue"/><span><b className="block text-sm text-slate-900">Approve camera for this assessment</b><small className="text-slate-500">Enables camera preview, face/person checks, and phone detection for students.</small></span></label>
 
           <div className="rounded-md border border-portal-line">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-portal-line px-4 py-3">

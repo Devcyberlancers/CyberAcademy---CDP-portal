@@ -12,6 +12,8 @@ import { defaultStudentAccount, fetchStudentProfile, readStudentAccount, type St
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
+import { StudentLeaderboard, fetchStudentLeaderboard, type StudentLeaderboardData } from '@/components/student-leaderboard';
+
 type TestAttempt = {
   attemptId?: number;
   attemptNumber: number;
@@ -60,6 +62,7 @@ type CourseModule = {
   maxAttempts?: number;
   durationMinutes?: number;
   totalMarks?: number;
+  cameraRequired?: boolean;
   quizAttempts?: TestAttempt[];
 };
 type CourseContent = {
@@ -77,6 +80,7 @@ type CourseContent = {
 };
 
 export default function StudentCoursePage({ params }: { params: Promise<{ id: string }> }) {
+  const [leaderboard, setLeaderboard] = useState<StudentLeaderboardData | null>(null);
   const [courseId, setCourseId] = useState("");
   const [data, setData] = useState<CourseContent | null>(null);
   const [error, setError] = useState("");
@@ -124,6 +128,17 @@ export default function StudentCoursePage({ params }: { params: Promise<{ id: st
       .then(setData)
       .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Course content could not be loaded."));
   }, [courseId]);
+
+  useEffect(() => {
+    if (!courseId) return;
+    let active = true;
+    const load = () => fetchStudentLeaderboard('/api/leaderboards/courses/' + encodeURIComponent(courseId))
+      .then((board) => { if (active) setLeaderboard(board); })
+      .catch(() => { if (active) setLeaderboard(null); });
+    void load();
+    const timer = window.setInterval(() => void load(), 30000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [courseId, data?.modules]);
 
   const withPortalShell = (content: ReactNode) => (
     <DashboardShell
@@ -220,6 +235,7 @@ export default function StudentCoursePage({ params }: { params: Promise<{ id: st
 
         <CourseHeader course={data.course} courseProgress={courseProgress} assessmentCount={testItems.length} moduleCount={data.modules.length} />
         {testItems.length ? <CourseAssessmentWorkspace assessments={testItems} courseProgress={courseProgress} onInstructions={setInstructionAssessment} onTakeTest={(assessment) => { if (assessment.assignmentId.startsWith("module:")) setPreflightAssessment(assessment); else window.location.href = `/dashboard/student?section=assessments&assignment=${encodeURIComponent(assessment.assignmentId)}&launch=1`; }} /> : null}
+        {leaderboard ? <StudentLeaderboard board={leaderboard} title={data.course.title + ' Rankings'} /> : null}
         {activeQuizIndex !== null ? (
           <CourseQuiz
             module={data.modules[activeQuizIndex]}
@@ -240,6 +256,12 @@ export default function StudentCoursePage({ params }: { params: Promise<{ id: st
         {preflightAssessment ? (
           <ExamReadinessDialog
             title={preflightAssessment.title}
+            config={preflightAssessment.assignmentId.startsWith("module:") ? {
+              camera: data.modules[Number(preflightAssessment.assignmentId.slice("module:".length))]?.cameraRequired !== false,
+              faceDetection: data.modules[Number(preflightAssessment.assignmentId.slice("module:".length))]?.cameraRequired !== false,
+              personDetection: data.modules[Number(preflightAssessment.assignmentId.slice("module:".length))]?.cameraRequired !== false,
+              phoneDetection: data.modules[Number(preflightAssessment.assignmentId.slice("module:".length))]?.cameraRequired !== false,
+            } : undefined}
             onClose={() => setPreflightAssessment(null)}
             onProceed={() => {
               if (preflightAssessment.assignmentId.startsWith("module:")) startModuleQuiz(Number(preflightAssessment.assignmentId.slice("module:".length)));
@@ -692,7 +714,7 @@ function CourseQuiz({ module, answers, onChoose, error, result, onSubmit, onClos
               </button>
             ))}
           </div>
-          <div className="mt-auto border-t p-2"><ProctorPreview /></div>
+          <div className="mt-auto border-t p-2"><ProctorPreview enabled={module?.cameraRequired !== false} /></div>
           <dl className="space-y-2 border-t p-3 text-xs">
             <div className="flex justify-between">
               <dt>Answered</dt>
@@ -778,7 +800,7 @@ function CourseQuiz({ module, answers, onChoose, error, result, onSubmit, onClos
     </section>
   );
 }
-function ProctorPreview(){ return <ProctoringPreview compact />; }
+function ProctorPreview({enabled}: {enabled: boolean}){ return <ProctoringPreview compact enabled={enabled} />; }
 function CourseEndConfirmation({ total, answered, visited, onCancel, onConfirm }: { total: number; answered: number; visited: number; onCancel: () => void; onConfirm: () => void }) {
   const [word, setWord] = useState("");
   return (

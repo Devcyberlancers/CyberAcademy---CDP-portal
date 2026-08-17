@@ -504,7 +504,7 @@ export class StudentPortalService {
       const totalMarks = publicQuestions.reduce((sum, question) => sum + question.marks, 0);
       const rawAttempts = Array.isArray(quizProgress?.attempts) ? quizProgress.attempts : quizProgress?.submitted_at ? [{ attemptNumber: 1, startedAt: quizProgress.submitted_at, endedAt: quizProgress.submitted_at, durationSeconds: 0, score: quizProgress.score, passed: quizProgress.passed, tabSwitches: 0, browser: 'Unknown', operatingSystem: 'Unknown', ipAddress: 'Unavailable' }] : [];
       const quizAttempts = rawAttempts.map((attempt: any) => ({ ...attempt, totalMarks: Math.max(0, Number(attempt.totalMarks) || totalMarks), earnedMarks: Number.isFinite(Number(attempt.earnedMarks)) ? Number(attempt.earnedMarks) : Math.round(((Number(attempt.score) || 0) / 100) * totalMarks) }));
-      return { ...module, generatedQuestions: publicQuestions, totalMarks, locked: !accessible, accessible, completed: required, videoCompleted, quizPassed, maxAttempts: Math.max(1, Math.min(20, Number(module.maxAttempts || 3))), quizAttempts };
+      return { ...module, cameraRequired: module.cameraRequired !== false, generatedQuestions: publicQuestions, totalMarks, locked: !accessible, accessible, completed: required, videoCompleted, quizPassed, maxAttempts: Math.max(1, Math.min(20, Number(module.maxAttempts || 3))), quizAttempts };
     });
     return {
       course: {

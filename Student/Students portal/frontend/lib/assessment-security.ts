@@ -2,6 +2,7 @@ export type ViolationPolicy = "warning" | "auto_submit" | "end_exam";
 
 export type AssessmentSecuritySettings = {
   enabled: boolean;
+  cameraEnabled: boolean;
   requireFullscreen: boolean;
   endOnFullscreenExit: boolean;
   endOnTabSwitch: boolean;
@@ -105,6 +106,7 @@ export function violationText(reason: string | null) {
     FULLSCREEN_EXIT: "Fullscreen was exited.",
     PAGE_HIDE: "Assessment page was hidden.",
     BROWSER_CLOSED: "Browser close or navigation was detected.",
+    PHONE_DETECTED: "The test was automatically submitted after the fourth mobile phone warning.",
     TIMER_EXPIRED: "Timer expired."
   };
   return labels[reason || ""] || "A prohibited action was detected.";

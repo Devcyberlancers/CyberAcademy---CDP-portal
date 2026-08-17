@@ -424,6 +424,69 @@ export function getCourseStudentProgress(courseId: number | string) {
   );
 }
 
+export type LeaderboardAttempt = {
+  source: 'course_test' | 'written_exam';
+  assessment_id: string;
+  assessment_title: string;
+  attempt_number: number;
+  score: number;
+  earned_marks: number;
+  max_marks: number;
+  status: string;
+  attempted_at?: string | null;
+};
+export type LeaderboardStudent = {
+  rank: number; student_id: number; student_name: string; student_email: string; registration_number: string;
+  score: number; online_score?: number | null; written_score?: number | null; completion_percent: number;
+  completed_components?: number; total_components?: number; attempts: number; attempt_results?: LeaderboardAttempt[];
+  course_scores?: Array<{ course_id: number; course_title: string; rank?: number | null; score: number; completion_percent: number; attempts: number }>;
+  written_exam_score?: number | null;
+};
+export type CourseLeaderboard = {
+  scope: 'course'; batch: string; course: { id: number; title: string }; generated_at: string;
+  topper: { rank: number; student_id: number; student_name: string; registration_number: string; score: number } | null;
+  components: { course_tests: number; written_exams: number; total: number }; students: LeaderboardStudent[];
+};
+export type BatchLeaderboard = {
+  scope: 'batch'; batch: string; generated_at: string;
+  topper: { rank: number; student_id: number; student_name: string; registration_number: string; score: number } | null;
+  components: { courses: number; written_exams: number }; students: LeaderboardStudent[];
+};
+
+export function getAdminCourseLeaderboard(courseId: number | string) {
+  return request<CourseLeaderboard>('/api/admin/leaderboards/courses/' + encodeURIComponent(String(courseId)));
+}
+export function getAdminBatchLeaderboard() {
+  return request<BatchLeaderboard>('/api/admin/leaderboards/batch');
+}
+export async function downloadWrittenExamTemplate() {
+  const token = typeof window !== 'undefined' ? window.localStorage.getItem(tokenStorageKey) : null;
+  const response = await fetch(API_BASE_URL + '/api/admin/leaderboards/written-exams/template', {
+    headers: token ? { Authorization: 'Bearer ' + token } : {},
+  });
+  if (!response.ok) throw new Error(await responseError(response));
+  const url = URL.createObjectURL(await response.blob());
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = 'written-exam-leaderboard-template.csv';
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+export async function uploadWrittenExamResults(file: File) {
+  const token = typeof window !== 'undefined' ? window.localStorage.getItem(tokenStorageKey) : null;
+  const batch = typeof window !== 'undefined' ? window.localStorage.getItem(selectedAdminBatchStorageKey)?.trim() : '';
+  const form = new FormData();
+  form.append('file', file);
+  const query = batch ? '?batch=' + encodeURIComponent(batch) : '';
+  const response = await fetch(API_BASE_URL + '/api/admin/leaderboards/written-exams/import' + query, {
+    method: 'POST', headers: token ? { Authorization: 'Bearer ' + token } : {}, body: form,
+  });
+  if (!response.ok) throw new Error(await responseError(response));
+  const result = await response.json() as { imported: number; rejected: number; errors: Array<{ row: number; message: string }> };
+  notify({ type: 'success', message: result.imported + ' written exam result(s) imported.' });
+  return result;
+}
+
 export function getStudentProfileFromDb(studentId: number) {
   return request<DbStudent>(`/api/admin/students/${studentId}/profile`);
 }

@@ -14,6 +14,7 @@ import { StudentPortalModule } from './modules/student-portal/student-portal.mod
 import { AdminModule } from './modules/admin/admin.module';
 import { AssessmentsModule } from './modules/assessments/assessments.module';
 import { ResumeAnalysisModule } from './modules/resume-analysis/resume-analysis.module';
+import { LeaderboardsModule } from './modules/leaderboards/leaderboards.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { ResumeAnalysisModule } from './modules/resume-analysis/resume-analysis.
     AdminModule,
     AssessmentsModule,
     ResumeAnalysisModule,
+    LeaderboardsModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

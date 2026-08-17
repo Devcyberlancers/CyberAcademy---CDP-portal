@@ -11,6 +11,7 @@ import { YoloCocoDetector } from "./yolo-detector";
 const initialState = (): ProctoringState => ({
   status: "PROCTORING_INITIALIZING", camera: false, microphone: false, screenShare: false,
   fullscreen: false, faceDetected: null, personCount: null, phoneDetected: null, audioLevel: 0,
+  phoneWarningCount: 0, phoneWarningDeadline: null,
   detectorHealth: { mediapipe: "initializing", yolo: "initializing", browser: "initializing", audio: "initializing" },
 });
 
@@ -29,6 +30,8 @@ export class ProctoringEngine {
   private active = false;
   private stopped = false;
   private yoloBusy = false;
+  private phonePresent = false;
+  private phoneLastSeen = 0;
 
   constructor(private config: ProctoringConfig) {
     this.video.muted = true;
@@ -61,7 +64,7 @@ export class ProctoringEngine {
     if (this.config.camera && !activeTrack(streams.camera, "video")) throw await this.fail("A live camera stream is required.");
     if (this.config.microphone && !activeTrack(streams.camera, "audio")) throw await this.fail("A live microphone stream is required.");
     if (this.config.screenShare && !activeTrack(streams.screen, "video")) throw await this.fail("A live screen-share stream is required.");
-    if (streams.camera) {
+    if (streams.camera && activeTrack(streams.camera, "video")) {
       this.video.srcObject = streams.camera;
       await this.video.play();
     }
@@ -159,19 +162,59 @@ export class ProctoringEngine {
     try {
       const result = await this.yolo?.detect(this.video);
       if (!result) return;
-      this.update({ personCount: result.personCount, phoneDetected: result.phoneDetected });
+      this.update({ personCount: result.personCount });
       if (this.config.personDetection) {
         if (result.personCount === 0) this.emit("NO_PERSON_DETECTED", "warning", result.confidence);
         else if (result.personCount > 1) this.emit("MULTIPLE_PERSONS", "critical", result.confidence, { count: result.personCount });
         else this.emit("PERSON_DETECTED", "info", result.confidence);
       }
-      if (this.config.phoneDetection && result.phoneDetected) this.emit("PHONE_DETECTED", "critical", result.confidence);
+      if (this.config.phoneDetection) this.trackPhone(result.phoneDetected, result.confidence);
     } catch { this.update({ detectorHealth: { ...this.state.detectorHealth, yolo: "error" } }); }
     finally { this.yoloBusy = false; }
   }
 
+  private trackPhone(detected: boolean, confidence: number) {
+    const now = Date.now();
+    if (detected) {
+      this.phoneLastSeen = now;
+      if (!this.phonePresent) {
+        this.phonePresent = true;
+        this.issuePhoneWarning(confidence);
+      } else if (this.state.phoneWarningDeadline && now >= this.state.phoneWarningDeadline) {
+        this.issuePhoneWarning(confidence);
+      }
+      return;
+    }
+    if (this.phonePresent && now - this.phoneLastSeen < 3000) return;
+    this.phonePresent = false;
+    this.update({
+      phoneDetected: false,
+      phoneWarningDeadline: null,
+      status: this.active ? "PROCTORING_ACTIVE" : this.state.status,
+    });
+  }
+
+  private issuePhoneWarning(confidence: number) {
+    const warningNumber = this.state.phoneWarningCount + 1;
+    const autoSubmit = warningNumber >= 4;
+    this.update({
+      phoneDetected: true,
+      phoneWarningCount: warningNumber,
+      phoneWarningDeadline: autoSubmit ? null : Date.now() + 10_000,
+      status: "PROCTORING_WARNING",
+    });
+    this.emit("PHONE_DETECTED", autoSubmit ? "critical" : "warning", confidence, {
+      warningNumber,
+      warningsAllowed: 3,
+      graceSeconds: autoSubmit ? 0 : 10,
+      autoSubmit,
+      force: true,
+    });
+  }
+
   private action(event: ProctoringEvent): ProctoringAction {
     if (event.severity === "info") return "LOG_ONLY";
+    if (event.type === "PHONE_DETECTED") return event.metadata?.autoSubmit === true ? "AUTO_SUBMIT" : "WARN";
     if (event.severity === "warning") return "WARN";
     if (event.type === "TAB_SWITCH" && !this.config.endOnTabSwitch) return "WARN";
     if (event.type === "WINDOW_BLUR" && !this.config.endOnBlur) return "WARN";
@@ -184,13 +227,12 @@ export class ProctoringEngine {
   private emit(type: ProctoringEventType, severity: ProctoringEvent["severity"], confidence?: number, metadata?: Record<string, unknown>) {
     const now = Date.now();
     const dedupe = !["TAB_SWITCH", "WINDOW_BLUR", "FULLSCREEN_EXIT", "SCREEN_SHARE_STOPPED", "CAMERA_STOPPED", "MICROPHONE_STOPPED"].includes(type);
-    if (dedupe && now - (this.recent.get(type) ?? 0) < 8000) return;
+    if (dedupe && metadata?.force !== true && now - (this.recent.get(type) ?? 0) < 8000) return;
     this.recent.set(type, now);
     const event = { type, timestamp: now, severity, confidence, metadata } satisfies ProctoringEvent;
     this.queue.push(event);
     if (severity !== "info") this.update({ status: "PROCTORING_WARNING" });
     else if (this.active && this.state.status === "PROCTORING_WARNING") this.update({ status: "PROCTORING_ACTIVE" });
-    if (severity === "critical") void this.flush();
     const action = this.action(event);
     if (action !== "LOG_ONLY") void this.handlers.onPolicyAction?.(action, event);
   }
@@ -222,7 +264,7 @@ export class ProctoringEngine {
     this.video.pause();
     this.video.srcObject = null;
     stopProctoringStreams();
-    this.update({ status: "PROCTORING_STOPPED", camera: false, microphone: false, screenShare: false, audioLevel: 0 });
+    this.update({ status: "PROCTORING_STOPPED", camera: false, microphone: false, screenShare: false, phoneDetected: false, phoneWarningDeadline: null, audioLevel: 0 });
   }
 }
 
@@ -245,10 +287,15 @@ export async function stopPreparedProctoring() {
 
 export function configFromAssessmentSecurity(security?: Partial<{
   enabled: boolean; requireFullscreen: boolean; endOnFullscreenExit: boolean;
+  cameraEnabled: boolean;
   endOnTabSwitch: boolean; endOnBlur: boolean; violationPolicy: "warning" | "auto_submit" | "end_exam";
 }>): ProctoringConfig {
   return {
     ...defaultProctoringConfig,
+    camera: security?.cameraEnabled ?? true,
+    faceDetection: security?.cameraEnabled ?? true,
+    personDetection: security?.cameraEnabled ?? true,
+    phoneDetection: security?.cameraEnabled ?? true,
     fullscreen: security?.requireFullscreen ?? true,
     tabSwitchMonitoring: security?.enabled ?? true,
     windowBlurMonitoring: security?.enabled ?? true,

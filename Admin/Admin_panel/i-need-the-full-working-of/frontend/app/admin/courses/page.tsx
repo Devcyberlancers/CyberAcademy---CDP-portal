@@ -10,6 +10,8 @@ import { deleteCourseFromDb, getCourseStudentProgress, publishCourseInDb, type C
 import { downloadCsv, downloadPdf, type ReportRow } from "@/lib/report-download";
 import { Download, Edit3, FileText, Filter, Plus, RefreshCw, Rocket, Search, Trash2, Users, X } from "lucide-react";
 
+import { AdminLeaderboardDialog } from '@/components/admin/AdminLeaderboardDialog';
+
 export default function CoursesPage() {
   const [catalog, setCatalog] = useState<AdminCourse[]>(readLocalCourseCatalog());
   const [query, setQuery] = useState("");
@@ -19,6 +21,7 @@ export default function CoursesPage() {
   const [studentReport, setStudentReport] = useState<{ course: DbCourse; students: CourseStudentProgress[] } | null>(null);
   const [studentQuery, setStudentQuery] = useState("");
   const [reportLoading, setReportLoading] = useState(false);
+  const [leaderboardCourse, setLeaderboardCourse] = useState<{ id: string; title: string } | null | undefined>(undefined);
 
   useEffect(() => {
     let active = true;
@@ -143,6 +146,11 @@ export default function CoursesPage() {
 
   return (
     <AdminShell title="Courses" subtitle="Create, publish, and maintain student learning content">
+      <div className='mb-4 flex justify-end'>
+        <button type='button' onClick={() => setLeaderboardCourse(null)} className='inline-flex h-11 items-center gap-2 rounded-md bg-[#102f98] px-5 text-sm font-bold text-white shadow-sm'>
+          <Users size={17} /> Batch Leaderboard &amp; Written Results
+        </button>
+      </div>
       <SectionCard
         title="All Courses"
         action={
@@ -209,6 +217,9 @@ export default function CoursesPage() {
                         <Edit3 size={16} />
                         Edit
                       </Link>
+                      <button type='button' onClick={() => setLeaderboardCourse({ id: course.id, title: course.title })} className='inline-flex h-9 items-center gap-2 rounded-md border border-amber-200 px-3 font-semibold text-amber-700'>
+                        <Users size={16} /> Leaderboard
+                      </button>
                       <button type="button" onClick={() => void openStudents(course)} className="inline-flex h-9 items-center gap-2 rounded-md border border-blue-200 px-3 font-semibold text-portal-blue"><Users size={16} /> Students</button>
                       {course.status !== "Published" ? (
                         <button type="button" onClick={() => void publishCourse(course)} className="inline-flex h-9 items-center gap-2 rounded-md border border-emerald-200 px-3 font-semibold text-emerald-700">
@@ -236,6 +247,13 @@ export default function CoursesPage() {
             <div className="p-5"><label className="mb-4 flex h-11 items-center gap-3 rounded-md border border-portal-line px-3 text-slate-500"><Search size={17} /><input value={studentQuery} onChange={(event) => setStudentQuery(event.target.value)} className="w-full outline-none" placeholder="Search student, email or register number" /></label><div className="overflow-x-auto"><table className="w-full min-w-[900px] text-left text-sm"><thead><tr className="border-b bg-slate-50 text-slate-600"><th className="p-3">Student</th><th className="p-3">Assigned</th><th className="p-3">Progress</th><th className="p-3">Assessments</th><th className="p-3">Attempts</th><th className="p-3">Average Score</th><th className="p-3">Latest Score</th></tr></thead><tbody>{studentReport.students.filter((student) => !studentQuery.trim() || [student.student_name, student.student_email, student.register_number].some((value) => value.toLowerCase().includes(studentQuery.trim().toLowerCase()))).map((student) => <tr key={student.student_id} className="border-b border-portal-line"><td className="p-3"><p className="font-bold text-slate-900">{student.student_name}</p><p className="text-xs text-slate-500">{student.student_email} · {student.register_number}</p></td><td className="p-3">{student.assigned ? "Yes" : "Available"}</td><td className="p-3 font-bold">{student.progress_percent}%</td><td className="p-3">{student.assessments_completed}/{student.total_assessments}</td><td className="p-3">{student.attempts}</td><td className="p-3 font-bold text-portal-blue">{student.average_score ?? "—"}</td><td className="p-3 font-bold text-portal-blue">{student.latest_score ?? "—"}</td></tr>)}</tbody></table></div></div>
           </div>
         </div>
+      ) : null}
+      {leaderboardCourse !== undefined ? (
+        <AdminLeaderboardDialog
+          courseId={leaderboardCourse?.id}
+          courseTitle={leaderboardCourse?.title}
+          onClose={() => setLeaderboardCourse(undefined)}
+        />
       ) : null}
     </AdminShell>
   );

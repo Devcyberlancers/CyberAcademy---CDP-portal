@@ -175,6 +175,7 @@ model assignment_security_settings {
   assignment_title          String                                        @db.VarChar(220)
   duration_minutes          Int
   enabled                   Boolean
+  camera_enabled            Boolean                                       @default(true)
   require_fullscreen        Boolean
   end_on_fullscreen_exit    Boolean
   end_on_tab_switch         Boolean
@@ -458,6 +459,27 @@ model users {
   created_at        DateTime                   @db.DateTime(0)
   students          students[]
   password_security student_password_security?
+}
+
+model written_exam_results {
+  id                  Int       @id @default(autoincrement())
+  batch               String    @db.VarChar(40)
+  course_key          String    @db.VarChar(80)
+  course_id           Int?
+  exam_name           String    @db.VarChar(220)
+  student_email       String    @db.VarChar(255)
+  registration_number String    @db.VarChar(80)
+  student_name        String    @db.VarChar(180)
+  attempt_number      Int       @default(1)
+  score               Float     @db.Double
+  max_score           Float     @db.Double
+  attempted_at        DateTime? @db.DateTime(0)
+  imported_at         DateTime  @default(now()) @db.DateTime(0)
+  imported_by         String    @db.VarChar(255)
+
+  @@unique([batch, course_key, exam_name, student_email, attempt_number])
+  @@index([batch, course_id])
+  @@index([student_email])
 }
 
 enum assignment_attempts_status {

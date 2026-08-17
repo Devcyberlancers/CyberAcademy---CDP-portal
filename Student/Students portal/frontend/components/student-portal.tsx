@@ -35,6 +35,9 @@ import { installKeyboardBlocker } from "@/lib/keyboard-blocker";
 import { configFromAssessmentSecurity, getPreparedProctoringEngine, stopPreparedProctoring } from "@/lib/proctoring/proctoring-engine";
 import type { ProctoringEvent } from "@/lib/proctoring/types";
 
+import { StudentLeaderboard, fetchStudentLeaderboard, type StudentLeaderboardData } from '@/components/student-leaderboard';
+import { Trophy } from 'lucide-react';
+
 type ExternalJob = {
   id?: number;
   title: string;
@@ -1231,6 +1234,8 @@ function CoursesView({ searchTerm }: { searchTerm: string }) {
   const [showFilters, setShowFilters] = useState(false);
   const [adminCourses, setAdminCourses] = useState<PortalCourse[]>([]);
   const [coursesLoading, setCoursesLoading] = useState(true);
+  const [batchLeaderboard, setBatchLeaderboard] = useState<StudentLeaderboardData | null>(null);
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -1254,6 +1259,14 @@ function CoursesView({ searchTerm }: { searchTerm: string }) {
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    fetchStudentLeaderboard('/api/leaderboards/batch')
+      .then((board) => { if (active) setBatchLeaderboard(board); })
+      .catch(() => { if (active) setBatchLeaderboard(null); });
+    return () => { active = false; };
+  }, []);
+
   const sourceCourses: PortalCourse[] = adminCourses;
   const cleanSearch = searchTerm.trim().toLowerCase();
   const matchingCourses = cleanSearch
@@ -1275,7 +1288,13 @@ function CoursesView({ searchTerm }: { searchTerm: string }) {
     <div className="w-full">
       <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
         <div>
-          <h1 className="mb-5 text-xl font-semibold text-black">Recently Viewed</h1>
+          <div className='mb-5 flex flex-wrap items-center justify-between gap-3'>
+            <h1 className='text-xl font-semibold text-black'>Recently Viewed</h1>
+            <button type='button' onClick={() => setShowLeaderboard((value) => !value)} className='inline-flex h-10 items-center gap-2 rounded-md border border-[#3155ff] bg-white px-4 text-sm font-bold text-[#3155ff]'>
+              <Trophy size={17} /> {showLeaderboard ? 'Hide Batch Leaderboard' : 'View Batch Leaderboard'}
+            </button>
+          </div>
+          {showLeaderboard && batchLeaderboard ? <StudentLeaderboard board={batchLeaderboard} title={batchLeaderboard.batch + ' Overall Rankings'} /> : null}
           {coursesLoading && <div className="mb-4 text-sm text-[#657083]">Loading courses from database...</div>}
           <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             {visibleCourses.slice(0, 3).map((course) => (
@@ -1837,10 +1856,10 @@ function SecureExamRoom({ attempt, answers, secondsLeft, onChooseAnswer, onSubmi
   function go(index: number) { const safe = Math.max(0, Math.min(attempt.questions.length - 1, index)); setCurrent(safe); const id = attempt.questions[safe]?.id; if (id) setVisited((value) => new Set(value).add(id)); }
   function toggleBookmark() { if (!question) return; setBookmarked((value) => { const next = new Set(value); if (next.has(question.id)) next.delete(question.id); else next.add(question.id); return next; }); }
   if (!question) return null;
-  return <div className="fixed inset-0 z-[70] flex flex-col overflow-hidden bg-[#f4f6fa] text-[#101522]"><div className="shrink-0 border-b border-emerald-200 bg-emerald-50 py-1.5 text-center text-sm font-semibold text-emerald-700">Internet Status: {navigator.onLine ? "Online" : "Offline"}</div><header className="flex shrink-0 flex-wrap items-center gap-4 border-b bg-white px-5 py-3"><h1 className="min-w-[220px] flex-1 font-bold">{attempt.title}</h1><select className="h-10 min-w-[260px] rounded border px-3"><option>Section 1/1 | Questions ({attempt.questions.length})</option></select><span className="text-sm">Question {current + 1} / {attempt.questions.length}</span><span className="rounded border px-3 py-2 font-mono font-bold">{formatTimer(secondsLeft)}</span><button onClick={onSubmit} className="rounded bg-[#153998] px-5 py-2.5 font-bold text-white">Submit Test</button></header><ProctorCameraPreview/><div className="grid min-h-0 flex-1 grid-cols-[150px_minmax(0,1fr)]"><aside className="flex min-h-0 flex-col border-r bg-white"><div className="grid grid-cols-2 gap-2 overflow-y-auto p-3">{attempt.questions.map((item,index) => <button key={item.id} onClick={() => go(index)} className={`h-9 rounded border text-sm font-semibold ${current === index ? "border-[#3155ff] bg-[#3155ff] text-white" : answers[item.id] ? "border-emerald-300 bg-emerald-50 text-emerald-700" : bookmarked.has(item.id) ? "border-amber-300 bg-amber-50" : "border-slate-200"}`}>{index + 1}</button>)}</div><dl className="mt-auto space-y-2 border-t p-3 text-xs"><div className="flex justify-between"><dt>Answered</dt><dd>{answered}/{attempt.questions.length}</dd></div><div className="flex justify-between"><dt>Bookmarked</dt><dd>{bookmarked.size}/{attempt.questions.length}</dd></div><div className="flex justify-between"><dt>Skipped</dt><dd>{Math.max(0, visited.size - answered)}/{attempt.questions.length}</dd></div><div className="flex justify-between"><dt>Not Viewed</dt><dd>{Math.max(0, attempt.questions.length - visited.size)}/{attempt.questions.length}</dd></div><div className="flex justify-between"><dt>Saved in Server</dt><dd>{answered}/{attempt.questions.length}</dd></div></dl></aside><main className="grid min-h-0 grid-cols-1 lg:grid-cols-2"><section className="overflow-y-auto border-r bg-white p-6"><div className="flex items-center justify-between"><p className="text-sm font-bold">Question No: {current + 1} / {attempt.questions.length}</p><button onClick={toggleBookmark} className={`grid h-10 w-10 place-items-center rounded border ${bookmarked.has(question.id) ? "border-amber-400 bg-amber-50 text-amber-600" : "border-slate-300"}`} aria-label="Bookmark question"><Bookmark size={19} fill={bookmarked.has(question.id) ? "currentColor" : "none"} /></button></div><h2 className="mt-8 text-xl font-bold">Multiple Choice Question</h2><p className="mt-5 whitespace-pre-wrap text-base leading-7">{question.text}</p></section><section className="flex min-h-0 flex-col bg-white"><div className="border-b px-6 py-4 text-lg font-bold">Answer here</div><div className="flex-1 overflow-y-auto">{question.options.map((option) => <label key={option.id} className="flex cursor-pointer items-center gap-4 border-b px-6 py-5 hover:bg-slate-50"><input type="radio" name={question.id} checked={answers[question.id] === option.id} onChange={() => onChooseAnswer(question.id, option.id)} className="h-5 w-5" /><span>{option.text}</span></label>)}</div><div className="flex justify-between border-t p-4"><button disabled={current === 0} onClick={() => go(current - 1)} className="inline-flex items-center gap-2 rounded border px-4 py-2 disabled:opacity-40"><ChevronLeft size={17}/>Previous</button><button disabled={current === attempt.questions.length - 1} onClick={() => go(current + 1)} className="inline-flex items-center gap-2 rounded bg-[#3155ff] px-4 py-2 text-white disabled:opacity-40">Next<ChevronRight size={17}/></button></div></section></main></div></div>;
+  return <div className="fixed inset-0 z-[70] flex flex-col overflow-hidden bg-[#f4f6fa] text-[#101522]"><div className="shrink-0 border-b border-emerald-200 bg-emerald-50 py-1.5 text-center text-sm font-semibold text-emerald-700">Internet Status: {navigator.onLine ? "Online" : "Offline"}</div><header className="flex shrink-0 flex-wrap items-center gap-4 border-b bg-white px-5 py-3"><h1 className="min-w-[220px] flex-1 font-bold">{attempt.title}</h1><select className="h-10 min-w-[260px] rounded border px-3"><option>Section 1/1 | Questions ({attempt.questions.length})</option></select><span className="text-sm">Question {current + 1} / {attempt.questions.length}</span><span className="rounded border px-3 py-2 font-mono font-bold">{formatTimer(secondsLeft)}</span><button onClick={onSubmit} className="rounded bg-[#153998] px-5 py-2.5 font-bold text-white">Submit Test</button></header><ProctorCameraPreview enabled={attempt.security.cameraEnabled}/><div className="grid min-h-0 flex-1 grid-cols-[150px_minmax(0,1fr)]"><aside className="flex min-h-0 flex-col border-r bg-white"><div className="grid grid-cols-2 gap-2 overflow-y-auto p-3">{attempt.questions.map((item,index) => <button key={item.id} onClick={() => go(index)} className={`h-9 rounded border text-sm font-semibold ${current === index ? "border-[#3155ff] bg-[#3155ff] text-white" : answers[item.id] ? "border-emerald-300 bg-emerald-50 text-emerald-700" : bookmarked.has(item.id) ? "border-amber-300 bg-amber-50" : "border-slate-200"}`}>{index + 1}</button>)}</div><dl className="mt-auto space-y-2 border-t p-3 text-xs"><div className="flex justify-between"><dt>Answered</dt><dd>{answered}/{attempt.questions.length}</dd></div><div className="flex justify-between"><dt>Bookmarked</dt><dd>{bookmarked.size}/{attempt.questions.length}</dd></div><div className="flex justify-between"><dt>Skipped</dt><dd>{Math.max(0, visited.size - answered)}/{attempt.questions.length}</dd></div><div className="flex justify-between"><dt>Not Viewed</dt><dd>{Math.max(0, attempt.questions.length - visited.size)}/{attempt.questions.length}</dd></div><div className="flex justify-between"><dt>Saved in Server</dt><dd>{answered}/{attempt.questions.length}</dd></div></dl></aside><main className="grid min-h-0 grid-cols-1 lg:grid-cols-2"><section className="overflow-y-auto border-r bg-white p-6"><div className="flex items-center justify-between"><p className="text-sm font-bold">Question No: {current + 1} / {attempt.questions.length}</p><button onClick={toggleBookmark} className={`grid h-10 w-10 place-items-center rounded border ${bookmarked.has(question.id) ? "border-amber-400 bg-amber-50 text-amber-600" : "border-slate-300"}`} aria-label="Bookmark question"><Bookmark size={19} fill={bookmarked.has(question.id) ? "currentColor" : "none"} /></button></div><h2 className="mt-8 text-xl font-bold">Multiple Choice Question</h2><p className="mt-5 whitespace-pre-wrap text-base leading-7">{question.text}</p></section><section className="flex min-h-0 flex-col bg-white"><div className="border-b px-6 py-4 text-lg font-bold">Answer here</div><div className="flex-1 overflow-y-auto">{question.options.map((option) => <label key={option.id} className="flex cursor-pointer items-center gap-4 border-b px-6 py-5 hover:bg-slate-50"><input type="radio" name={question.id} checked={answers[question.id] === option.id} onChange={() => onChooseAnswer(question.id, option.id)} className="h-5 w-5" /><span>{option.text}</span></label>)}</div><div className="flex justify-between border-t p-4"><button disabled={current === 0} onClick={() => go(current - 1)} className="inline-flex items-center gap-2 rounded border px-4 py-2 disabled:opacity-40"><ChevronLeft size={17}/>Previous</button><button disabled={current === attempt.questions.length - 1} onClick={() => go(current + 1)} className="inline-flex items-center gap-2 rounded bg-[#3155ff] px-4 py-2 text-white disabled:opacity-40">Next<ChevronRight size={17}/></button></div></section></main></div></div>;
 }
 
-function ProctorCameraPreview() { return <ProctoringPreview />; }
+function ProctorCameraPreview({enabled}: {enabled: boolean}) { return <ProctoringPreview enabled={enabled} />; }
 function AssessmentEnded({ attempt, onBack }: { attempt: SecureAttempt; onBack: () => void }) {
   return (
     <div className="grid min-h-[calc(100vh-160px)] place-items-center">
