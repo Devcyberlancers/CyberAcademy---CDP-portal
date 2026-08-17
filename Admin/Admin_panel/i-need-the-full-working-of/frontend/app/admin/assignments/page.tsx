@@ -5,7 +5,7 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { SectionCard } from "@/components/admin/SectionCard";
 import { getAdminSnapshot, getStandaloneAssessments, getStudentAssessmentAttempt, listStudentAssessmentAttempts, saveAdminSnapshot, saveStandaloneAssessments } from "@/lib/admin-api";
 import { downloadCsv, downloadPdf, type ReportRow } from "@/lib/report-download";
-import { AlertTriangle, CheckCircle2, ClipboardList, Download, FileCheck2, FileText, ImagePlus, Plus, RefreshCw, Save, Search, Send, ShieldCheck, Trash2, Users, X, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ClipboardList, Download, Edit3, FileCheck2, FileText, ImagePlus, Plus, RefreshCw, Save, Search, Send, ShieldCheck, Trash2, Users, X, XCircle } from "lucide-react";
 
 type QuestionType = "MCQ" | "Coding" | "Descriptive";
 
@@ -33,6 +33,7 @@ type StandaloneAssessment = {
   sections: string;
   safeMode: true;
   cameraRequired: boolean;
+  published?: boolean;
   questions: AssessmentQuestion[];
 };
 
@@ -186,9 +187,16 @@ export default function AssessmentsPage() {
   const [resultsLoading, setResultsLoading] = useState(false);
   const [detailLoadingId, setDetailLoadingId] = useState("");
   const [resultsError, setResultsError] = useState("");
+  const [assessmentQuery, setAssessmentQuery] = useState("");
+  const [editorOpen, setEditorOpen] = useState(false);
   const blankAssessment: StandaloneAssessment = { id: "", title: "", description: "", durationMinutes: 60, maxAttempts: 1, passPercent: 60, sections: "", safeMode: true, cameraRequired: true, questions: [] };
   const selectedAssessment = assessments.find((item) => item.id === selectedAssessmentId) ?? assessments[0] ?? blankAssessment;
   const selectedSubmission = submissions.find((item) => item.id === selectedSubmissionId);
+  const filteredAssessments = useMemo(() => {
+    const query = assessmentQuery.trim().toLowerCase();
+    if (!query) return assessments;
+    return assessments.filter((assessment) => [assessment.title, assessment.description, assessment.sections].some((value) => value.toLowerCase().includes(query)));
+  }, [assessmentQuery, assessments]);
 
   async function loadDatabaseResults() {
     setResultsLoading(true);
@@ -315,13 +323,13 @@ export default function AssessmentsPage() {
   }), [submissions]);
 
   function updateAssessment(patch: Partial<StandaloneAssessment>) {
-    setAssessments((current) => current.map((item) => item.id === selectedAssessment.id ? { ...item, ...patch, safeMode: true } : item));
+    setAssessments((current) => current.map((item) => item.id === selectedAssessment.id ? { ...item, ...patch, safeMode: true, published: false } : item));
     setSaveNotice("Unsaved changes. Push when the assessment is ready for students.");
   }
 
   function createAssessment() {
     const next: StandaloneAssessment = {
-      id: `ASM-${String(assessments.length + 1).padStart(3, "0")}`,
+      id: `ASM-${Date.now()}`,
       title: "",
       description: "",
       durationMinutes: 60,
@@ -330,11 +338,38 @@ export default function AssessmentsPage() {
       sections: "",
       safeMode: true,
       cameraRequired: true,
+      published: false,
       questions: []
     };
     setAssessments((current) => [next, ...current]);
     setSelectedAssessmentId(next.id);
+    setEditorOpen(true);
     setSaveNotice("New assessment draft created.");
+  }
+
+  function editAssessment(id: string) {
+    setSelectedAssessmentId(id);
+    setEditorOpen(true);
+    setSaveNotice("");
+  }
+
+  async function deleteAssessment(assessment: StandaloneAssessment) {
+    if (!window.confirm(`Delete "${assessment.title || "Untitled assessment"}"? Student access and its published test definition will be removed.`)) return;
+    const next = assessments.filter((item) => item.id !== assessment.id);
+    setSaving(true);
+    try {
+      await saveStandaloneAssessments(next.filter((item) => item.published !== false));
+      setAssessments(next);
+      if (selectedAssessmentId === assessment.id) {
+        setSelectedAssessmentId(next[0]?.id ?? "");
+        setEditorOpen(false);
+      }
+      setSaveNotice(`${assessment.title || "Assessment"} was deleted.`);
+    } catch (error) {
+      setSaveNotice(error instanceof Error ? error.message : "Assessment could not be deleted.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   function addQuestion() {
@@ -354,24 +389,25 @@ export default function AssessmentsPage() {
       setSaveNotice("Create an assessment before pushing to students.");
       return;
     }
-    const invalid = assessments.find((assessment) =>
-      !assessment.title.trim()
-      || assessment.questions.length === 0
-      || assessment.questions.some((question) =>
+    const invalid =
+      !selectedAssessment.title.trim()
+      || selectedAssessment.questions.length === 0
+      || selectedAssessment.questions.some((question) =>
         !question.text.trim()
         || !question.correctAnswer.trim()
         || (question.type === "MCQ" && question.options.filter((option) => option.trim()).length < 2)
-      )
-    );
+      );
     if (invalid) {
-      setSelectedAssessmentId(invalid.id);
-      setSaveNotice(`Complete the title, questions, answers, and MCQ options for ${invalid.title.trim() || "the selected assessment"}.`);
+      setSaveNotice(`Complete the title, questions, answers, and MCQ options for ${selectedAssessment.title.trim() || "the selected assessment"}.`);
       return;
     }
     setSaving(true);
     setSaveNotice("Saving assessment and pushing it to the Student Panel...");
     try {
-      await saveStandaloneAssessments(assessments);
+      const next = assessments.map((assessment) => assessment.id === selectedAssessment.id ? { ...assessment, published: true } : assessment);
+      await saveStandaloneAssessments(next.filter((assessment) => assessment.published !== false));
+      setAssessments(next);
+      setEditorOpen(false);
       setSaveNotice("Assessment saved to the shared database and pushed to the Student Panel.");
     } catch (error) {
       setSaveNotice(error instanceof Error ? error.message : "Assessment could not be pushed.");
@@ -389,21 +425,35 @@ export default function AssessmentsPage() {
         </div>
 
         {activeTab === "builder" ? (
-          <div className="grid gap-5 xl:grid-cols-[320px_1fr]">
-            <SectionCard title="Assessment List" action={<button onClick={createAssessment} className="flex h-10 items-center gap-2 rounded-md bg-portal-blue px-4 text-sm font-bold text-white"><Plus size={16} /> Create</button>}>
-              <div className="space-y-3">
-                {assessments.map((assessment) => (
-                  <button key={assessment.id} onClick={() => setSelectedAssessmentId(assessment.id)} className={`w-full rounded-md border p-4 text-left ${selectedAssessment.id === assessment.id ? "border-portal-blue bg-blue-50" : "border-portal-line"}`}>
-                    <p className="font-bold text-slate-950">{assessment.title}</p>
-                    <p className="mt-1 text-xs text-slate-500">{assessment.questions.length} questions / {assessment.passPercent}% pass</p>
-                    <p className="mt-2 flex items-center gap-1 text-xs font-bold text-emerald-700"><ShieldCheck size={14} /> Safe mode · Camera {assessment.cameraRequired === false ? "off" : "on"}</p>
-                  </button>
-                ))}
-                {!assessments.length ? <p className="rounded-md border border-dashed border-portal-line p-5 text-center text-sm font-semibold text-slate-500">No assessments yet. Click Create to add one.</p> : null}
+          <div className="grid gap-5">
+            <SectionCard title="All Assessments" action={<button onClick={createAssessment} className="flex h-10 items-center gap-2 rounded-md bg-portal-blue px-4 text-sm font-bold text-white"><Plus size={17} /> Add Assessment</button>}>
+              {saveNotice && !editorOpen ? <p className={`mb-4 rounded-md px-4 py-3 text-sm font-semibold ${saveNotice.includes("deleted") || saveNotice.includes("pushed") ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-slate-700"}`}>{saveNotice}</p> : null}
+              <label className="mb-5 flex h-11 items-center gap-3 rounded-md border border-portal-line px-3 text-slate-500">
+                <Search size={18} />
+                <input value={assessmentQuery} onChange={(event) => setAssessmentQuery(event.target.value)} className="w-full outline-none" placeholder="Search assessments..." />
+              </label>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[900px] border-collapse text-left text-sm">
+                  <thead><tr className="border-b border-portal-line bg-slate-50 text-slate-600"><th className="px-4 py-3">Assessment</th><th className="px-4 py-3">Questions</th><th className="px-4 py-3">Duration</th><th className="px-4 py-3">Attempts</th><th className="px-4 py-3">Monitoring</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Actions</th></tr></thead>
+                  <tbody>
+                    {filteredAssessments.map((assessment) => (
+                      <tr key={assessment.id} className="border-b border-portal-line">
+                        <td className="px-4 py-4"><p className="font-bold text-slate-950">{assessment.title || "Untitled assessment"}</p><p className="mt-1 text-xs text-slate-500">{assessment.sections || assessment.description || assessment.id}</p></td>
+                        <td className="px-4 py-4"><b>{assessment.questions.length}</b><span className="ml-1 text-slate-500">questions</span></td>
+                        <td className="px-4 py-4">{assessment.durationMinutes} minutes</td>
+                        <td className="px-4 py-4">{assessment.maxAttempts} maximum</td>
+                        <td className="px-4 py-4"><span className="inline-flex items-center gap-1.5 font-semibold text-slate-700"><ShieldCheck size={15} className="text-portal-blue" /> Camera {assessment.cameraRequired === false ? "off" : "on"}</span></td>
+                        <td className="px-4 py-4"><span className={`rounded-full px-3 py-1 text-xs font-bold ${assessment.published === false ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700"}`}>{assessment.published === false ? "Draft" : "Published"}</span></td>
+                        <td className="px-4 py-4"><div className="flex items-center gap-2"><button type="button" onClick={() => editAssessment(assessment.id)} className="inline-flex h-9 items-center gap-2 rounded-md border border-portal-line px-3 font-semibold text-portal-blue"><Edit3 size={16} /> Edit</button><button type="button" disabled={saving} onClick={() => void deleteAssessment(assessment)} className="inline-flex h-9 items-center gap-2 rounded-md border border-red-200 px-3 font-semibold text-red-600 disabled:opacity-50"><Trash2 size={16} /> Delete</button></div></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {!filteredAssessments.length ? <p className="p-8 text-center text-sm font-semibold text-slate-500">{assessments.length ? "No assessments match this search." : "No assessments yet. Click Add Assessment to create one."}</p> : null}
               </div>
             </SectionCard>
 
-            <SectionCard title="Question Paper" action={<div className="flex flex-wrap gap-2"><button onClick={addQuestion} disabled={!selectedAssessment.id} className="flex h-10 items-center gap-2 rounded-md border border-portal-line px-4 text-sm font-bold text-portal-blue disabled:cursor-not-allowed disabled:opacity-40"><Plus size={16} /> Add Question</button><button onClick={() => void pushAssessments()} disabled={saving || !selectedAssessment.id} className="flex h-10 items-center gap-2 rounded-md bg-emerald-600 px-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{saving ? <Save size={16} /> : <Send size={16} />}{saving ? "Pushing..." : "Save & Push to Student Panel"}</button></div>}>
+            {editorOpen && selectedAssessment.id ? <SectionCard title={selectedAssessment.published === false ? "Create / Edit Assessment" : "Edit Assessment"} action={<div className="flex flex-wrap gap-2"><button type="button" onClick={() => setEditorOpen(false)} className="flex h-10 items-center rounded-md border border-portal-line px-4 text-sm font-bold text-slate-700">Close</button><button onClick={addQuestion} disabled={!selectedAssessment.id} className="flex h-10 items-center gap-2 rounded-md border border-portal-line px-4 text-sm font-bold text-portal-blue disabled:cursor-not-allowed disabled:opacity-40"><Plus size={16} /> Add Question</button><button onClick={() => void pushAssessments()} disabled={saving || !selectedAssessment.id} className="flex h-10 items-center gap-2 rounded-md bg-emerald-600 px-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{saving ? <Save size={16} /> : <Send size={16} />}{saving ? "Publishing..." : "Save & Publish"}</button></div>}>
               {saveNotice ? <p className={`mb-4 rounded-md px-4 py-3 text-sm font-semibold ${saveNotice.includes("pushed") ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-slate-700"}`}>{saveNotice}</p> : null}
               <div className="grid gap-4 lg:grid-cols-2">
                 <label><span className="mb-1 block text-sm font-bold text-slate-600">Assessment Title</span><input value={selectedAssessment.title} onChange={(event) => updateAssessment({ title: event.target.value })} className="h-11 w-full rounded-md border border-portal-line px-3" /></label>
@@ -447,7 +497,7 @@ export default function AssessmentsPage() {
                   </div>
                 ))}
               </div>
-            </SectionCard>
+            </SectionCard> : null}
           </div>
         ) : (
           <ResultsView submissions={submissions} selected={selectedSubmission} onSelect={(id) => { if (id) void openSubmission(id); else setSelectedSubmissionId(""); }} onRefresh={() => void loadDatabaseResults()} totals={totals} loading={resultsLoading} detailLoadingId={detailLoadingId} error={resultsError} />
