@@ -2,15 +2,17 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Activity, BookOpen, BriefcaseBusiness, CheckCircle2, ClipboardList, Download, Mail, ShieldAlert, Upload, UserPlus, Users } from "lucide-react";
+import { Activity, BookOpen, BriefcaseBusiness, CheckCircle2, ClipboardList, Download, Mail, ShieldAlert, Trophy, Upload, UserPlus, Users } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
+import { AdminLeaderboardDialog } from "@/components/admin/AdminLeaderboardDialog";
 import { useAdminBatch } from "@/lib/admin-batch-context";
 import { SectionCard } from "@/components/admin/SectionCard";
 import { StatCard } from "@/components/admin/StatCard";
-import { getAdminDashboard, getAdminDashboardActivity, listAdminJobs, listJobApplicationActivity, listStudentsFromDb, type AdminJobApplicationActivity, type DbStudent } from "@/lib/admin-api";
+import { getAdminBatchLeaderboard, getAdminDashboard, getAdminDashboardActivity, listAdminJobs, listJobApplicationActivity, listStudentsFromDb, type AdminJobApplicationActivity, type BatchLeaderboard, type DbStudent } from "@/lib/admin-api";
 import { useAdminStore } from "@/lib/admin-store";
 
 export default function AdminDashboardPage() {
+  const { selectedBatch } = useAdminBatch();
   const {
     registrations,
     students,
@@ -36,6 +38,9 @@ export default function AdminDashboardPage() {
   const [latestJob, setLatestJob] = useState<{ company: string; role: string } | null>(null);
   const [liveStudents, setLiveStudents] = useState<DbStudent[]>([]);
   const [liveApplications, setLiveApplications] = useState<AdminJobApplicationActivity[]>([]);
+  const [leaderboard, setLeaderboard] = useState<BatchLeaderboard | null>(null);
+  const [leaderboardError, setLeaderboardError] = useState("");
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
   const approvedStudents = students.filter((student) => student.status !== "Pending Approval" && student.status !== "Rejected");
   const accountCandidates = registrations.filter((registration) => !["Completed", "Approval Pending by Admin", "Profile Completed - Approval Pending"].includes(registration.profileStatus ?? ""));
   const unsentAccountCandidates = accountCandidates.filter((registration) => registration.accountStatus !== "Credentials Sent");
@@ -45,7 +50,7 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     const loadDashboardData = async () => {
       try {
-        const [dashboard, activityData, liveJobs, databaseStudents, applications] = await Promise.all([getAdminDashboard(), getAdminDashboardActivity(), listAdminJobs(), listStudentsFromDb(), listJobApplicationActivity()]);
+        const [dashboard, activityData, liveJobs, databaseStudents, applications, liveLeaderboard] = await Promise.all([getAdminDashboard(), getAdminDashboardActivity(), listAdminJobs(), listStudentsFromDb(), listJobApplicationActivity(), getAdminBatchLeaderboard().catch(() => null)]);
         setBackendStats({
           totalStudents: dashboard.stats.total_students,
           activeThisWeek: dashboard.stats.active_this_week,
@@ -58,13 +63,15 @@ export default function AdminDashboardPage() {
         setLatestJob(liveJobs[0] ?? null);
         setLiveStudents(databaseStudents);
         setLiveApplications(applications);
+        setLeaderboard(liveLeaderboard);
+        setLeaderboardError(liveLeaderboard ? "" : "Leaderboard data could not be loaded.");
       } catch {
         setBackendStats(null);
       }
     };
 
     loadDashboardData();
-  }, [stats.activeThisWeek, stats.pendingApprovals, stats.totalStudents]);
+  }, [selectedBatch, stats.activeThisWeek, stats.pendingApprovals, stats.totalStudents]);
 
   const dashboardStats = [
     { label: "Total Students", value: String(backendStats?.totalStudents ?? stats.totalStudents), caption: "Approved accounts", tone: "indigo", icon: Users },
@@ -77,6 +84,35 @@ export default function AdminDashboardPage() {
 
   return (
     <AdminShell title="Dashboard" subtitle="Live admin control center for client testing">
+      <SectionCard title={"Overall Leaderboard · " + selectedBatch}>
+        <div className="grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)]">
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-5">
+            <span className="flex items-center gap-2 text-sm font-bold text-amber-800"><Trophy size={18} /> Batch topper</span>
+            <strong className="mt-4 block text-xl text-slate-950">{leaderboard?.topper?.student_name || "No scored results yet"}</strong>
+            <p className="mt-1 text-sm text-slate-600">{leaderboard?.topper ? leaderboard.topper.registration_number + " · " + leaderboard.topper.score + "%" : "Import written results or complete portal tests to begin ranking."}</p>
+            <button type="button" onClick={() => setShowLeaderboard(true)} className="mt-5 h-10 w-full rounded-md bg-portal-blue px-4 text-sm font-bold text-white">View full leaderboard</button>
+          </div>
+          <div className="min-w-0 overflow-x-auto rounded-xl border border-portal-line">
+            <table className="w-full min-w-[680px] text-left text-sm">
+              <thead className="bg-slate-100 text-slate-600"><tr><th className="p-3">Rank</th><th className="p-3">Student</th><th className="p-3">Overall</th><th className="p-3">Written</th><th className="p-3">Completion</th><th className="p-3">Attempts</th></tr></thead>
+              <tbody>
+                {leaderboard?.students.slice(0, 5).map((student) => (
+                  <tr key={student.student_id} className="border-t border-portal-line">
+                    <td className="p-3 font-black text-portal-blue">#{student.rank}</td>
+                    <td className="p-3"><strong className="block text-slate-950">{student.student_name}</strong><span className="text-xs text-slate-500">{student.registration_number}</span></td>
+                    <td className="p-3 font-black text-slate-950">{student.score}%</td>
+                    <td className="p-3">{student.written_exam_score == null ? "—" : student.written_exam_score + "%"}</td>
+                    <td className="p-3">{student.completion_percent}%</td>
+                    <td className="p-3">{student.attempts}</td>
+                  </tr>
+                ))}
+                {!leaderboard?.students.length ? <tr><td colSpan={6} className="p-8 text-center text-sm font-semibold text-slate-500">{leaderboardError || "No students are available in this batch."}</td></tr> : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </SectionCard>
+      <div className="mt-5">
       <div className="grid min-w-0 items-start gap-4 lg:grid-cols-3 lg:gap-5">
         <div className="grid self-start gap-5 lg:col-span-2">
           <div className="grid items-start gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -171,6 +207,7 @@ export default function AdminDashboardPage() {
           </SectionCard>
         </div>
       </div>
+      </div>
       {showAccountForm ? (
         <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/30">
           <div className="h-full w-full overflow-y-auto border-l border-portal-line bg-white p-4 shadow-2xl sm:max-w-[520px] sm:p-5">
@@ -205,6 +242,13 @@ export default function AdminDashboardPage() {
           </div>
         </div>
       ) : null}
+      {showLeaderboard ? <AdminLeaderboardDialog onClose={() => {
+        setShowLeaderboard(false);
+        void getAdminBatchLeaderboard().then((result) => {
+          setLeaderboard(result);
+          setLeaderboardError("");
+        }).catch(() => setLeaderboardError("Leaderboard data could not be refreshed."));
+      }} /> : null}
     </AdminShell>
   );
 }

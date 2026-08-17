@@ -60,6 +60,11 @@ export class AdminLeaderboardsController {
     @Query('batch') batch: string | undefined,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.importWrittenResults(file?.buffer, batch, user.sub);
+    return this.service.importWrittenResults(
+      file?.buffer,
+      batch,
+      user.sub,
+      file?.originalname,
+    );
   }
 }

@@ -39,7 +39,7 @@ export function AdminLeaderboardDialog({
     void load();
   }, [load]);
 
-  async function importCsv(file?: File) {
+  async function importResults(file?: File) {
     if (!file) return;
     setLoading(true);
     setImportResult('');
@@ -50,7 +50,7 @@ export function AdminLeaderboardDialog({
       if (result.errors.length) setError(result.errors.slice(0, 6).map((item) => 'Row ' + item.row + ': ' + item.message).join(' | '));
       await load();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'CSV import failed.');
+      setError(reason instanceof Error ? reason.message : 'Results import failed.');
       setLoading(false);
     }
   }
@@ -69,8 +69,8 @@ export function AdminLeaderboardDialog({
               <Download size={16} /> CSV Template
             </button>
             <label className='inline-flex h-10 cursor-pointer items-center gap-2 rounded-md bg-portal-blue px-4 text-sm font-bold text-white'>
-              <Upload size={16} /> Import Written Results
-              <input type='file' accept='.csv,text/csv' className='sr-only' onChange={(event) => { void importCsv(event.target.files?.[0]); event.currentTarget.value = ''; }} />
+              <Upload size={16} /> Import CSV / XLSX
+              <input type='file' accept='.csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' className='sr-only' onChange={(event) => { void importResults(event.target.files?.[0]); event.currentTarget.value = ''; }} />
             </label>
             <button type='button' onClick={onClose} className='grid h-10 w-10 place-items-center rounded-full border border-portal-line' aria-label='Close leaderboard'><X size={19} /></button>
           </div>
@@ -94,7 +94,7 @@ export function AdminLeaderboardDialog({
                 </div>
                 <div className='rounded-xl border border-portal-line bg-slate-50 p-5'>
                   <span className='text-sm font-bold text-slate-500'>Scored components</span>
-                  <strong className='mt-3 block text-3xl text-slate-950'>{board.scope === 'course' ? board.components.total : board.components.courses + board.components.written_exams}</strong>
+                  <strong className='mt-3 block text-3xl text-slate-950'>{board.scope === 'course' ? board.components.total : board.components.courses + board.components.assessments + board.components.written_exams}</strong>
                 </div>
               </div>
               <div className='overflow-x-auto rounded-xl border border-portal-line'>

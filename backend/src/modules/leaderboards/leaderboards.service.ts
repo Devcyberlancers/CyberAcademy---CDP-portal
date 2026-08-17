@@ -4,10 +4,12 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from "@nestjs/common";
+import { DOMParser } from "@xmldom/xmldom";
+import JSZip = require("jszip");
 import { PrismaService } from "../../prisma/prisma.service";
 
 type AttemptRow = {
-  source: "course_test" | "written_exam";
+  source: "course_test" | "assessment" | "written_exam";
   assessment_id: string;
   assessment_title: string;
   attempt_number: number;
@@ -403,7 +405,14 @@ export class LeaderboardsService {
 
   async batch(requestedBatch?: string, currentStudentEmail?: string) {
     const batch = this.requireBatch(requestedBatch);
-    const [profiles, courses, standaloneWritten] = await Promise.all([
+    const standalonePrefix = "course:standalone:" + batch + ":";
+    const [
+      profiles,
+      courses,
+      standaloneWritten,
+      standaloneSettings,
+      standaloneAttempts,
+    ] = await Promise.all([
       this.prisma.student_profiles.findMany({
         where: { batch },
         orderBy: [{ full_name: "asc" }, { id: "asc" }],
@@ -415,6 +424,18 @@ export class LeaderboardsService {
       this.prisma.written_exam_results.findMany({
         where: { batch, course_id: null },
         orderBy: [{ attempted_at: "asc" }, { id: "asc" }],
+      }),
+      this.prisma.assignment_security_settings.findMany({
+        where: {
+          assignment_id: { startsWith: standalonePrefix },
+          published: true,
+          active: true,
+        },
+        orderBy: { created_at: "asc" },
+      }),
+      this.prisma.assignment_attempts.findMany({
+        where: { assignment_id: { startsWith: standalonePrefix } },
+        orderBy: [{ started_at: "asc" }, { id: "asc" }],
       }),
     ]);
     const scopedCourses = courses.filter(
@@ -431,6 +452,17 @@ export class LeaderboardsService {
     const writtenNames = [
       ...new Set(standaloneWritten.map((row) => row.exam_name)),
     ].sort();
+    const assessmentComponents = standaloneSettings.map((setting) => ({
+      id: setting.assignment_id,
+      title: setting.assignment_title,
+      maxMarks: Array.isArray(setting.questions_json)
+        ? (setting.questions_json as any[]).reduce(
+            (sum, question) =>
+              sum + Math.max(1, Number(question?.marks) || 1),
+            0,
+          )
+        : 100,
+    }));
     const students = profiles.map((profile) => {
       const email = profile.email.toLowerCase();
       const courseScores = rankedCourseBoards.map((board) => {
@@ -459,15 +491,61 @@ export class LeaderboardsService {
             )
           : 0;
       });
+      const studentAssessmentAttempts = standaloneAttempts.filter(
+        (attempt) => attempt.student_email.toLowerCase() === email,
+      );
+      const assessmentScores = assessmentComponents.map((component) => {
+        const completed = studentAssessmentAttempts.filter(
+          (attempt) =>
+            attempt.assignment_id === component.id &&
+            attempt.status !== "in_progress",
+        );
+        return completed.length
+          ? Math.max(...completed.map((attempt) => Number(attempt.score) || 0))
+          : 0;
+      });
       const componentScores = [
         ...courseScores.map((item) => item.score),
+        ...assessmentScores,
         ...writtenScores,
       ];
       const completed =
         courseScores.filter((item) => item.completion_percent >= 100).length +
+        assessmentComponents.filter((component) =>
+          studentAssessmentAttempts.some(
+            (attempt) =>
+              attempt.assignment_id === component.id &&
+              attempt.status !== "in_progress",
+          ),
+        ).length +
         writtenNames.filter((name) =>
           written.some((row) => row.exam_name === name),
         ).length;
+      const assessmentAttemptRows: AttemptRow[] =
+        studentAssessmentAttempts.map((attempt) => {
+          const component = assessmentComponents.find(
+            (item) => item.id === attempt.assignment_id,
+          );
+          const score = Math.max(
+            0,
+            Math.min(100, Number(attempt.score) || 0),
+          );
+          const maxMarks = component?.maxMarks ?? 100;
+          return {
+            source: "assessment",
+            assessment_id: attempt.assignment_id,
+            assessment_title: component?.title ?? "Assessment",
+            attempt_number: Math.max(
+              1,
+              Number(attempt.attempt_number) || 1,
+            ),
+            score: this.round(score),
+            earned_marks: this.round((score / 100) * maxMarks),
+            max_marks: maxMarks,
+            status: attempt.status,
+            attempted_at: attempt.ended_at ?? attempt.started_at,
+          };
+        });
       const writtenAttempts: AttemptRow[] = written.map((result) => ({
         source: "written_exam",
         assessment_id: "written:" + result.id,
@@ -497,9 +575,14 @@ export class LeaderboardsService {
           : 0,
         attempts:
           courseScores.reduce((sum, item) => sum + item.attempts, 0) +
+          studentAssessmentAttempts.length +
           written.length,
         course_scores: courseScores,
-        attempt_results: writtenAttempts,
+        attempt_results: [...assessmentAttemptRows, ...writtenAttempts].sort(
+          (a, b) =>
+            new Date(b.attempted_at ?? 0).getTime() -
+            new Date(a.attempted_at ?? 0).getTime(),
+        ),
         written_exam_score: writtenScores.length
           ? this.round(
               writtenScores.reduce((sum, value) => sum + value, 0) /
@@ -528,6 +611,7 @@ export class LeaderboardsService {
         : null,
       components: {
         courses: rankedCourseBoards.length,
+        assessments: assessmentComponents.length,
         written_exams: writtenNames.length,
       },
       students: ranked,
@@ -546,17 +630,29 @@ export class LeaderboardsService {
     file: Buffer | undefined,
     requestedBatch: string | undefined,
     actor: string,
+    originalName = "results.csv",
   ) {
     const batch = this.requireBatch(requestedBatch);
     if (!file?.length)
-      throw new BadRequestException("Select a CSV file to import");
-    if (file.length > 5 * 1024 * 1024)
-      throw new BadRequestException("CSV file must be 5 MB or smaller");
-    const parsed = this.parseCsv(file.toString("utf8"));
+      throw new BadRequestException("Select a CSV or XLSX file to import");
+    if (file.length > 10 * 1024 * 1024)
+      throw new BadRequestException("The results file must be 10 MB or smaller");
+    const workbook =
+      originalName.toLowerCase().endsWith(".xlsx") ||
+      (file[0] === 0x50 && file[1] === 0x4b);
+    let parsed = workbook
+      ? await this.parseWorkbookSummary(file)
+      : this.parseCsv(file.toString("utf8"));
     if (parsed.length < 2)
       throw new BadRequestException(
-        "CSV must contain a header and at least one result row",
+        "The file must contain a header and at least one result row",
       );
+    const initialHeaders = parsed[0].map((header) =>
+      this.normalizeHeader(header),
+    );
+    if (!initialHeaders.includes("exam_name")) {
+      parsed = this.expandWideAssessmentSummary(parsed, batch);
+    }
     if (parsed.length > 5001)
       throw new BadRequestException(
         "A single import supports up to 5,000 result rows",
@@ -589,10 +685,18 @@ export class LeaderboardsService {
     );
     const byRegistration = new Map(
       profiles.map((profile) => [
-        profile.registration_number.trim().toLowerCase(),
+        this.normalizeIdentity(profile.registration_number),
         profile,
       ]),
     );
+    const byName = new Map<string, (typeof profiles)[number] | null>();
+    profiles.forEach((profile) => {
+      const key = this.normalizeIdentity(
+        profile.full_name || profile.first_name || "",
+      );
+      if (!key) return;
+      byName.set(key, byName.has(key) ? null : profile);
+    });
     const courseById = new Map(
       scopedCourses.map((course) => [course.id, course]),
     );
@@ -628,10 +732,14 @@ export class LeaderboardsService {
         if (csvBatch && csvBatch.toLowerCase() !== batch.toLowerCase())
           throw new Error("row belongs to another batch");
         const email = value("student_email").toLowerCase();
-        const registration = value("registration_number").toLowerCase();
+        const registration = this.normalizeIdentity(
+          value("registration_number"),
+        );
+        const studentName = this.normalizeIdentity(value("student_name"));
         const profile =
           (email ? byEmail.get(email) : undefined) ??
-          (registration ? byRegistration.get(registration) : undefined);
+          (registration ? byRegistration.get(registration) : undefined) ??
+          (studentName ? byName.get(studentName) || undefined : undefined);
         if (!profile)
           throw new Error("student is not present in the selected batch");
         if (email && profile.email.toLowerCase() !== email)
@@ -740,7 +848,215 @@ export class LeaderboardsService {
         },
       });
     }
-    return { imported: records.length, rejected: errors.length, errors };
+    return {
+      imported: records.length,
+      rejected: errors.length,
+      errors,
+      format: workbook ? "xlsx-summary" : "csv",
+    };
+  }
+
+  private normalizeIdentity(value: string) {
+    return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+  }
+
+  private expandWideAssessmentSummary(rows: string[][], batch: string) {
+    const headerIndex = rows.findIndex((row) => {
+      const headers = row.map((cell) => this.normalizeHeader(cell));
+      return (
+        headers.includes("registration_number") &&
+        headers.includes("student_name")
+      );
+    });
+    if (headerIndex < 0) {
+      throw new BadRequestException(
+        "Could not find Roll Number and Student Name columns in the assessment summary",
+      );
+    }
+    const header = rows[headerIndex];
+    const normalized = header.map((cell) => this.normalizeHeader(cell));
+    const registrationIndex = normalized.indexOf("registration_number");
+    const nameIndex = normalized.indexOf("student_name");
+    const identityHeaders = new Set([
+      "sl_no",
+      "serial_number",
+      "registration_number",
+      "student_name",
+      "student_email",
+      "remarks",
+      "role",
+    ]);
+    const dataRows = rows.slice(headerIndex + 1).filter((row) =>
+      Boolean(row[registrationIndex]?.trim() || row[nameIndex]?.trim()),
+    );
+    const examColumns = header
+      .map((title, index) => ({ title: title.trim(), index }))
+      .filter(({ title, index }) => {
+        if (!title || identityHeaders.has(normalized[index])) return false;
+        if (/^average\b/i.test(title) || /\baverage$/i.test(title)) return false;
+        return dataRows.some(({ [index]: cell }) =>
+          Number.isFinite(Number(cell?.trim())) && cell?.trim() !== "",
+        );
+      })
+      .map((column) => {
+        const observed = dataRows
+          .map((row) => Number(row[column.index]?.trim()))
+          .filter((value) => Number.isFinite(value) && value >= 0);
+        const stated = this.maxScoreFromTitle(column.title);
+        const inferred = this.inferMaximumScore(
+          observed.length ? Math.max(...observed) : 0,
+        );
+        return { ...column, maxScore: Math.max(stated, inferred) };
+      });
+    if (!examColumns.length) {
+      throw new BadRequestException(
+        "No written exam score columns were found in the assessment summary",
+      );
+    }
+    const expanded = [
+      [
+        "batch",
+        "exam_name",
+        "registration_number",
+        "student_name",
+        "attempt_number",
+        "score",
+        "max_score",
+      ],
+    ];
+    dataRows.forEach((row) => {
+      examColumns.forEach((exam) => {
+        const rawScore = row[exam.index]?.trim() ?? "";
+        if (!rawScore || !Number.isFinite(Number(rawScore))) return;
+        expanded.push([
+          batch,
+          exam.title,
+          row[registrationIndex]?.trim() ?? "",
+          row[nameIndex]?.trim() ?? "",
+          "1",
+          rawScore,
+          String(exam.maxScore),
+        ]);
+      });
+    });
+    return expanded;
+  }
+
+  private maxScoreFromTitle(title: string) {
+    const matches = [
+      ...title.matchAll(/(?:\(|-|\b)(\d+(?:\.\d+)?)\s*marks?\b/gi),
+    ];
+    return matches.length ? Number(matches.at(-1)?.[1]) || 0 : 0;
+  }
+
+  private inferMaximumScore(highestScore: number) {
+    for (const maximum of [5, 10, 20, 25, 50, 100]) {
+      if (highestScore <= maximum) return maximum;
+    }
+    return Math.ceil(highestScore);
+  }
+
+  private async parseWorkbookSummary(file: Buffer) {
+    try {
+      const zip = await JSZip.loadAsync(file);
+      const parser = new DOMParser();
+      const xml = async (path: string) => {
+        const entry = zip.file(path);
+        if (!entry) throw new Error("Workbook entry is missing: " + path);
+        return parser.parseFromString(await entry.async("string"), "text/xml");
+      };
+      const sharedDocument = zip.file("xl/sharedStrings.xml")
+        ? await xml("xl/sharedStrings.xml")
+        : null;
+      const sharedStrings = sharedDocument
+        ? Array.from(sharedDocument.getElementsByTagName("si")).map((item) =>
+            Array.from(item.getElementsByTagName("t"))
+              .map((text) => text.textContent ?? "")
+              .join(""),
+          )
+        : [];
+      const workbook = await xml("xl/workbook.xml");
+      const relationships = await xml("xl/_rels/workbook.xml.rels");
+      const relationshipTargets = new Map(
+        Array.from(relationships.getElementsByTagName("Relationship")).map(
+          (relationship) => [
+            relationship.getAttribute("Id") ?? "",
+            relationship.getAttribute("Target") ?? "",
+          ],
+        ),
+      );
+      const sheets: Array<{
+        name: string;
+        hidden: boolean;
+        rows: string[][];
+      }> = [];
+      for (const sheet of Array.from(workbook.getElementsByTagName("sheet"))) {
+        const id =
+          sheet.getAttribute("r:id") ||
+          sheet.getAttributeNS(
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+            "id",
+          ) ||
+          "";
+        const target = relationshipTargets.get(id);
+        if (!target) continue;
+        const path = target.startsWith("/")
+          ? target.slice(1)
+          : target.startsWith("xl/")
+            ? target
+            : "xl/" + target;
+        const document = await xml(path);
+        const rows: string[][] = [];
+        for (const row of Array.from(document.getElementsByTagName("row"))) {
+          const cells: string[] = [];
+          for (const cell of Array.from(row.getElementsByTagName("c"))) {
+            const reference = cell.getAttribute("r") ?? "A1";
+            const letters = reference.match(/[A-Z]+/i)?.[0] ?? "A";
+            let column = 0;
+            for (const letter of letters.toUpperCase()) {
+              column = column * 26 + letter.charCodeAt(0) - 64;
+            }
+            const type = cell.getAttribute("t");
+            const raw = cell.getElementsByTagName("v")[0]?.textContent ?? "";
+            const value =
+              type === "s"
+                ? sharedStrings[Number(raw)] ?? ""
+                : type === "inlineStr"
+                  ? Array.from(cell.getElementsByTagName("t"))
+                      .map((text) => text.textContent ?? "")
+                      .join("")
+                  : raw;
+            cells[column - 1] = value;
+          }
+          rows.push(cells);
+        }
+        sheets.push({
+          name: sheet.getAttribute("name") ?? "Sheet",
+          hidden: sheet.getAttribute("state") === "hidden",
+          rows,
+        });
+      }
+      const candidates = sheets
+        .filter((sheet) => /summary/i.test(sheet.name))
+        .sort(
+          (a, b) =>
+            Number(a.hidden) - Number(b.hidden) ||
+            Math.max(...b.rows.map((row) => row.length), 0) -
+              Math.max(...a.rows.map((row) => row.length), 0),
+        );
+      const selected = candidates[0] ?? sheets.sort(
+        (a, b) =>
+          Math.max(...b.rows.map((row) => row.length), 0) -
+          Math.max(...a.rows.map((row) => row.length), 0),
+      )[0];
+      if (!selected) throw new Error("Workbook has no worksheets");
+      return selected.rows;
+    } catch (error) {
+      throw new BadRequestException(
+        "The XLSX workbook could not be read: " +
+          (error instanceof Error ? error.message : "invalid workbook"),
+      );
+    }
   }
 
   private normalizeHeader(value: string) {
@@ -754,6 +1070,8 @@ export class LeaderboardsService {
       login_mail: "student_email",
       registration_no: "registration_number",
       register_number: "registration_number",
+      roll_number: "registration_number",
+      roll_no: "registration_number",
       usn: "registration_number",
       name: "student_name",
       marks: "score",

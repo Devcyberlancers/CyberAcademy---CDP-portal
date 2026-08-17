@@ -425,7 +425,7 @@ export function getCourseStudentProgress(courseId: number | string) {
 }
 
 export type LeaderboardAttempt = {
-  source: 'course_test' | 'written_exam';
+  source: 'course_test' | 'assessment' | 'written_exam';
   assessment_id: string;
   assessment_title: string;
   attempt_number: number;
@@ -450,7 +450,7 @@ export type CourseLeaderboard = {
 export type BatchLeaderboard = {
   scope: 'batch'; batch: string; generated_at: string;
   topper: { rank: number; student_id: number; student_name: string; registration_number: string; score: number } | null;
-  components: { courses: number; written_exams: number }; students: LeaderboardStudent[];
+  components: { courses: number; assessments: number; written_exams: number }; students: LeaderboardStudent[];
 };
 
 export function getAdminCourseLeaderboard(courseId: number | string) {
@@ -482,7 +482,7 @@ export async function uploadWrittenExamResults(file: File) {
     method: 'POST', headers: token ? { Authorization: 'Bearer ' + token } : {}, body: form,
   });
   if (!response.ok) throw new Error(await responseError(response));
-  const result = await response.json() as { imported: number; rejected: number; errors: Array<{ row: number; message: string }> };
+  const result = await response.json() as { imported: number; rejected: number; format?: 'csv' | 'xlsx-summary'; errors: Array<{ row: number; message: string }> };
   notify({ type: 'success', message: result.imported + ' written exam result(s) imported.' });
   return result;
 }

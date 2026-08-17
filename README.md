@@ -269,18 +269,27 @@ No account or email is created until the administrator selects **Approve, Create
 
 ## Course and batch leaderboards
 
-Open **Admin -> Courses** and choose **Batch Leaderboard & Written Results** for
-the selected batch, or choose **Leaderboard** on an individual course. Student
-course pages show the matching live course ranking, while the Student Courses
-tab exposes the complete ranking for that student's batch.
+The Admin Dashboard shows the live overall leaderboard for the currently
+selected batch. It combines course quizzes, standalone assessments, and
+written examinations. Open **Admin -> Courses** and choose **Batch Leaderboard
+& Written Results** for the full breakdown, or choose **Leaderboard** on an
+individual course. Student course pages show the matching live course ranking,
+while the Student Courses tab exposes the complete ranking for that student's
+batch.
 
-Written examination results can be imported from the repository CSV template
-at templates/written-exam-leaderboard-template.csv, or by downloading the same
-template from the admin leaderboard. Use either student_email or
-registration_number to identify a student. Set course_id or course_title to
-include the written exam in a course leaderboard; leave both blank for a
-batch-wide written exam. Re-importing the same batch, exam, student, and attempt
-updates the saved result instead of creating a duplicate.
+Written examination results accept CSV or XLSX files. The importer supports
+both the repository's row-per-result template at
+templates/written-exam-leaderboard-template.csv and wide assessment-summary
+workbooks containing Roll Number, Student Name, and any number of exam columns.
+Calculated Average columns are ignored. Maximum marks are read from headings
+such as `(20 Marks)` and safely inferred for headings that omit or contain an
+incorrect maximum. Student matching is case-insensitive and prioritizes email
+or normalized registration number before an unambiguous name match.
+
+For the row-per-result template, set course_id or course_title to include the
+written exam in a course leaderboard; leave both blank for a batch-wide written
+exam. Re-importing the same batch, exam, student, and attempt updates the saved
+result instead of creating a duplicate.
 
 The leaderboard table is created by Prisma. Production deployments must use
 the existing backend command npm --prefix backend run deploy:build so the

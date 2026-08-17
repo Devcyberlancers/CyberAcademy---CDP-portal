@@ -3,7 +3,7 @@
 import { Trophy } from 'lucide-react';
 
 export type StudentLeaderboardAttempt = {
-  source: 'course_test' | 'written_exam'; assessment_id: string; assessment_title: string;
+  source: 'course_test' | 'assessment' | 'written_exam'; assessment_id: string; assessment_title: string;
   attempt_number: number; score: number; earned_marks: number; max_marks: number; status: string; attempted_at?: string | null;
 };
 export type StudentLeaderboardRow = {
