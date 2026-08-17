@@ -1283,6 +1283,8 @@ function CoursesView({ searchTerm }: { searchTerm: string }) {
       if (sortBy === "accessed") return (sourceCourses.indexOf(a) + 7) % sourceCourses.length - (sourceCourses.indexOf(b) + 7) % sourceCourses.length;
       return 0;
     });
+  const currentStudentScores = batchLeaderboard?.students.find((student) => student.is_current_student)?.course_scores ?? [];
+  const scoreForCourse = (course: PortalCourse) => course.id ? currentStudentScores.find((item) => item.course_id === course.id)?.score ?? null : null;
 
   return (
     <div className="w-full">
@@ -1298,7 +1300,7 @@ function CoursesView({ searchTerm }: { searchTerm: string }) {
           {coursesLoading && <div className="mb-4 text-sm text-[#657083]">Loading courses from database...</div>}
           <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             {visibleCourses.slice(0, 3).map((course) => (
-              <CourseCard key={course.title} course={course} compact onOpen={() => { if (course.id) window.location.href = `/courses/${course.id}`; }} />
+              <CourseCard key={course.title} course={course} score={scoreForCourse(course)} compact onOpen={() => { if (course.id) window.location.href = `/courses/${course.id}`; }} />
             ))}
           </div>
 
@@ -1344,7 +1346,7 @@ function CoursesView({ searchTerm }: { searchTerm: string }) {
 
           <div className="mt-5 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             {visibleCourses.map((course) => (
-              <CourseCard key={`my-${course.title}`} course={course} onOpen={() => { if (course.id) window.location.href = `/courses/${course.id}`; }} />
+              <CourseCard key={`my-${course.title}`} course={course} score={scoreForCourse(course)} onOpen={() => { if (course.id) window.location.href = `/courses/${course.id}`; }} />
             ))}
           </div>
           {!coursesLoading && visibleCourses.length === 0 ? (
@@ -1369,10 +1371,12 @@ function CoursesView({ searchTerm }: { searchTerm: string }) {
 
 function CourseCard({
   course,
+  score,
   compact = false,
   onOpen
 }: {
   course: PortalCourse;
+  score?: number | null;
   compact?: boolean;
   onOpen?: () => void;
 }) {
@@ -1399,7 +1403,7 @@ function CourseCard({
       </div>
       <div className={`mt-3 flex justify-between text-sm ${status === "completed" ? "text-[#259b42]" : status === "active" ? "text-[#3155ff]" : "text-red-500"}`}>
         <span>{statusLabel}</span>
-        <span>{status === "completed" ? "Course complete" : "In progress"}</span>
+        <span>{score == null ? (status === "completed" ? "Course complete" : "In progress") : `Best score ${score}%`}</span>
       </div>
       <div className="mt-7 grid grid-cols-2 gap-4 text-sm">
         <CourseStat value={course.assessments} label="Quiz" />
@@ -1514,6 +1518,19 @@ function AssessmentsView() {
   const [assessmentFilter, setAssessmentFilter] = useState<"all" | "available" | "completed" | "exhausted">("all");
   const [confirmSubmit, setConfirmSubmit] = useState(false);
   const [readinessAssessment, setReadinessAssessment] = useState<SecureAssessmentSummary | null>(null);
+  const assessmentPerformance = useMemo(() => {
+    const completed = assessments.flatMap((item) => item.attempts.filter((entry) => entry.status !== "in_progress"));
+    const bestScores = assessments.flatMap((item) => {
+      const scores = item.attempts.filter((entry) => entry.status !== "in_progress").map((entry) => entry.score);
+      return scores.length ? [Math.max(...scores)] : [];
+    });
+    return {
+      completed: completed.length,
+      scoredAssessments: bestScores.length,
+      average: bestScores.length ? Math.round(bestScores.reduce((sum, score) => sum + score, 0) / bestScores.length) : 0,
+      best: bestScores.length ? Math.max(...bestScores) : 0,
+    };
+  }, [assessments]);
 
   useEffect(() => () => stopExamStreams(), []);
 
@@ -1736,6 +1753,12 @@ function AssessmentsView() {
             </div>
           </div>
 
+          <div className="mb-5 grid gap-3 sm:grid-cols-3">
+            <AssessmentScoreCard label="Assessments scored" value={assessmentPerformance.scoredAssessments} suffix="" />
+            <AssessmentScoreCard label="Average best score" value={assessmentPerformance.average} suffix="%" />
+            <AssessmentScoreCard label="Highest score" value={assessmentPerformance.best} suffix="%" />
+          </div>
+
           {error && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
           {startConflict?.error === "ACTIVE_ATTEMPT" && startConflict.resume_allowed && (
             <div className="mb-4 rounded-lg border border-[#dbe0e9] bg-white px-4 py-3 text-sm text-[#4f5868]">
@@ -1777,6 +1800,10 @@ function AssessmentsView() {
                     <span className="rounded-full bg-[#eef2ff] px-3 py-1 text-xs font-semibold text-[#3155ff]">Safe Mode</span>
                   </div>
                   <h3 className="mt-5 text-lg font-semibold text-black">{assessment.title}</h3>
+                  <div className="mt-4 grid grid-cols-2 gap-3 rounded-xl border border-[#e7eaf1] bg-[#fafbfe] p-4">
+                    <div><p className="text-xs font-semibold uppercase tracking-wide text-[#7a8394]">Best score</p><p className="mt-1 text-xl font-bold text-[#07142f]">{assessmentBestScore(assessment)}%</p></div>
+                    <div><p className="text-xs font-semibold uppercase tracking-wide text-[#7a8394]">Attempts</p><p className="mt-1 text-xl font-bold text-[#07142f]">{assessment.attemptsUsed}/{assessment.maxAttempts}</p></div>
+                  </div>
                   <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-[#5f6573]">
                     <span>{assessment.questionCount} Questions</span>
                     <span>{assessment.durationMinutes} Minutes</span>
@@ -1808,6 +1835,8 @@ function AssessmentsView() {
           <h2 className="mb-5 text-xl font-bold text-black">Assessments Summary</h2>
           <div className="space-y-4">
             <SummaryBadge label="Assessments Available" value={assessments.length} />
+            <SummaryBadge label="Completed Attempts" value={assessmentPerformance.completed} />
+            <SummaryBadge label="Average Score" value={assessmentPerformance.average} />
             <SummaryBadge label="Safe Mode Enabled" value={assessments.filter((item) => item.safeMode).length} />
           </div>
         </aside>
@@ -1815,6 +1844,15 @@ function AssessmentsView() {
       {readinessAssessment ? <ExamReadinessDialog title={readinessAssessment.title} config={configFromAssessmentSecurity(readinessAssessment.security)} onClose={() => setReadinessAssessment(null)} onProceed={() => startAssessment(readinessAssessment)} /> : null}
     </div>
   );
+}
+
+function AssessmentScoreCard({ label, value, suffix }: { label: string; value: number; suffix: string }) {
+  return <div className="rounded-xl border border-[#dfe4f2] bg-white p-4 shadow-sm"><p className="text-xs font-semibold uppercase tracking-wide text-[#7a8394]">{label}</p><p className="mt-2 text-2xl font-bold text-[#07142f]">{value}{suffix}</p></div>;
+}
+
+function assessmentBestScore(assessment: SecureAssessmentSummary) {
+  const scores = assessment.attempts.filter((item) => item.status !== "in_progress").map((item) => Number(item.score) || 0);
+  return scores.length ? Math.max(...scores) : 0;
 }
 
 function assessmentButtonLabel(assessment: SecureAssessmentSummary) {
@@ -1834,10 +1872,10 @@ function AssessmentAttemptHistory({ attempts }: { attempts: SecureAssessmentSumm
   const [number, setNumber] = useState(attempts[attempts.length - 1]?.attemptNumber || 0);
   const selected = attempts.find((item) => item.attemptNumber === number) || attempts[attempts.length - 1];
   if (!selected) return null;
-  return <div className="mt-4 rounded-lg border border-[#e1e5ee] bg-[#fafbfe] p-3 text-xs text-[#566075]">
-    <div className="flex items-center justify-between gap-3"><strong className="text-[#07142f]">Attempt result</strong><select value={selected.attemptNumber} onChange={(event)=>setNumber(Number(event.target.value))} className="rounded border bg-white px-2 py-1.5">{attempts.map((item)=><option key={item.attemptNumber} value={item.attemptNumber}>Attempt {String(item.attemptNumber).padStart(2,"0")}</option>)}</select></div>
-    <div className="mt-3 grid grid-cols-2 gap-2"><span>Score: <strong>{selected.score}/100</strong></span><span>Time: <strong>{formatAssessmentDuration(selected.durationSeconds)}</strong></span><span>Tab switches: <strong>{selected.violations}</strong></span><span>Browser: <strong>{selected.browser || "Unknown"}</strong></span></div>
-    <p className="mt-2 truncate">IP: {selected.ipAddress || "Unavailable"}</p>
+  return <div className="mt-4 rounded-xl border border-[#e1e5ee] bg-white p-4 text-xs text-[#566075]">
+    <div className="flex items-center justify-between gap-3"><strong className="text-sm text-[#07142f]">Assessment history</strong><select aria-label="Select assessment attempt" value={selected.attemptNumber} onChange={(event)=>setNumber(Number(event.target.value))} className="rounded-md border border-[#d8dde7] bg-white px-2 py-1.5 font-semibold">{attempts.map((item)=><option key={item.attemptNumber} value={item.attemptNumber}>Attempt {String(item.attemptNumber).padStart(2,"0")}</option>)}</select></div>
+    <div className="mt-3 grid grid-cols-2 gap-3 rounded-lg bg-[#fafbfe] p-3"><span>Score<br/><strong className="text-sm text-[#07142f]">{selected.score}/100</strong></span><span>Time spent<br/><strong className="text-sm text-[#07142f]">{formatAssessmentDuration(selected.durationSeconds)}</strong></span><span>Tab switches<br/><strong className="text-sm text-[#07142f]">{selected.violations}</strong></span><span>Browser<br/><strong className="text-sm text-[#07142f]">{selected.browser || "Unknown"}</strong></span></div>
+    <p className="mt-3 truncate font-medium">IP address: {selected.ipAddress || "Unavailable"}</p>
   </div>;
 }
 function formatAssessmentDuration(seconds: number) { const safe=Math.max(0,Math.floor(seconds||0)); return [Math.floor(safe/3600),Math.floor((safe%3600)/60),safe%60].map((part)=>String(part).padStart(2,"0")).join(":"); }

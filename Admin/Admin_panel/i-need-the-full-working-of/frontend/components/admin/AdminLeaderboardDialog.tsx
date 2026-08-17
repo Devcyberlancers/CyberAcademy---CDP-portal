@@ -1,23 +1,21 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { Download, Trophy, Upload, X } from 'lucide-react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { BookOpenCheck, ClipboardCheck, Download, FileSpreadsheet, Trophy, Upload, X } from 'lucide-react';
 import {
-  downloadWrittenExamTemplate, getAdminBatchLeaderboard, getAdminCourseLeaderboard,
-  type BatchLeaderboard, type CourseLeaderboard, uploadWrittenExamResults,
+  downloadWrittenExamTemplate,
+  getAdminBatchLeaderboard,
+  getAdminCourseLeaderboard,
+  type BatchLeaderboard,
+  type CourseLeaderboard,
+  type LeaderboardAttempt,
+  type LeaderboardStudent,
+  uploadWrittenExamResults,
 } from '@/lib/admin-api';
 
 type Board = CourseLeaderboard | BatchLeaderboard;
 
-export function AdminLeaderboardDialog({
-  courseId,
-  courseTitle,
-  onClose,
-}: {
-  courseId?: string;
-  courseTitle?: string;
-  onClose: () => void;
-}) {
+export function AdminLeaderboardDialog({ courseId, courseTitle, onClose }: { courseId?: string; courseTitle?: string; onClose: () => void }) {
   const [board, setBoard] = useState<Board | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -45,9 +43,8 @@ export function AdminLeaderboardDialog({
     setImportResult('');
     try {
       const result = await uploadWrittenExamResults(file);
-      const rejected = result.rejected ? ' ' + result.rejected + ' row(s) rejected.' : '';
-      setImportResult(result.imported + ' result(s) imported.' + rejected);
-      if (result.errors.length) setError(result.errors.slice(0, 6).map((item) => 'Row ' + item.row + ': ' + item.message).join(' | '));
+      setImportResult(`${result.imported} result(s) imported.${result.rejected ? ` ${result.rejected} row(s) rejected.` : ''}`);
+      if (result.errors.length) setError(result.errors.slice(0, 6).map((item) => `Row ${item.row}: ${item.message}`).join(' | '));
       await load();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Results import failed.');
@@ -65,9 +62,7 @@ export function AdminLeaderboardDialog({
             <p className='mt-1 text-sm text-slate-500'>Best score per test is ranked; unattempted tests remain zero.</p>
           </div>
           <div className='flex flex-wrap items-center gap-2'>
-            <button type='button' onClick={() => void downloadWrittenExamTemplate()} className='inline-flex h-10 items-center gap-2 rounded-md border border-portal-line px-4 text-sm font-bold text-slate-700'>
-              <Download size={16} /> CSV Template
-            </button>
+            <button type='button' onClick={() => void downloadWrittenExamTemplate()} className='inline-flex h-10 items-center gap-2 rounded-md border border-portal-line px-4 text-sm font-bold text-slate-700'><Download size={16} /> CSV Template</button>
             <label className='inline-flex h-10 cursor-pointer items-center gap-2 rounded-md bg-portal-blue px-4 text-sm font-bold text-white'>
               <Upload size={16} /> Import CSV / XLSX
               <input type='file' accept='.csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' className='sr-only' onChange={(event) => { void importResults(event.target.files?.[0]); event.currentTarget.value = ''; }} />
@@ -83,52 +78,22 @@ export function AdminLeaderboardDialog({
           {!loading && board ? (
             <>
               <div className='mb-5 grid gap-4 md:grid-cols-3'>
-                <div className='rounded-xl border border-amber-200 bg-amber-50 p-5'>
-                  <span className='flex items-center gap-2 text-sm font-bold text-amber-800'><Trophy size={18} /> Current topper</span>
-                  <strong className='mt-3 block text-xl text-slate-950'>{board.topper?.student_name || 'No scored attempts yet'}</strong>
-                  <span className='mt-1 block text-sm text-slate-600'>{board.topper ? board.topper.registration_number + ' · ' + board.topper.score + '%' : 'Results update automatically after submissions and imports.'}</span>
-                </div>
-                <div className='rounded-xl border border-portal-line bg-slate-50 p-5'>
-                  <span className='text-sm font-bold text-slate-500'>Students ranked</span>
-                  <strong className='mt-3 block text-3xl text-slate-950'>{board.students.length}</strong>
-                </div>
-                <div className='rounded-xl border border-portal-line bg-slate-50 p-5'>
-                  <span className='text-sm font-bold text-slate-500'>Scored components</span>
-                  <strong className='mt-3 block text-3xl text-slate-950'>{board.scope === 'course' ? board.components.total : board.components.courses + board.components.assessments + board.components.written_exams}</strong>
-                </div>
+                <SummaryCard label='Current topper' value={board.topper?.student_name || 'No scored attempts yet'} note={board.topper ? `${board.topper.registration_number} / ${board.topper.score}%` : 'Results update automatically after submissions and imports.'} topper />
+                <SummaryCard label='Students ranked' value={String(board.students.length)} />
+                <SummaryCard label='Scored components' value={String(board.scope === 'course' ? board.components.total : board.components.courses + board.components.assessments + board.components.written_exams)} />
               </div>
               <div className='overflow-x-auto rounded-xl border border-portal-line'>
-                <table className='w-full min-w-[980px] text-left text-sm'>
-                  <thead className='bg-slate-100 text-slate-600'>
-                    <tr><th className='p-3'>Rank</th><th className='p-3'>Student</th><th className='p-3'>Overall</th><th className='p-3'>Completion</th><th className='p-3'>Attempts</th><th className='p-3'>Online</th><th className='p-3'>Written</th><th className='p-3'>Results</th></tr>
-                  </thead>
+                <table className='w-full min-w-[760px] text-left text-sm'>
+                  <thead className='bg-slate-100 text-slate-600'><tr><th className='p-4'>Rank</th><th className='p-4'>Student</th><th className='p-4'>Overall</th><th className='p-4'>Completion</th><th className='p-4'>Attempts</th><th className='p-4'>Results</th></tr></thead>
                   <tbody>
                     {board.students.map((student) => (
                       <tr key={student.student_id} className='border-t border-portal-line align-top'>
-                        <td className='p-3 text-lg font-black text-portal-blue'>#{student.rank}</td>
-                        <td className='p-3'><strong className='block text-slate-950'>{student.student_name}</strong><span className='text-xs text-slate-500'>{student.registration_number} · {student.student_email}</span></td>
-                        <td className='p-3 font-black text-slate-950'>{student.score}%</td>
-                        <td className='p-3'>{student.completion_percent}%</td>
-                        <td className='p-3'>{student.attempts}</td>
-                        <td className='p-3'>{student.online_score == null ? '—' : student.online_score + '%'}</td>
-                        <td className='p-3'>{(student.written_score ?? student.written_exam_score) == null ? '—' : (student.written_score ?? student.written_exam_score) + '%'}</td>
-                        <td className='p-3'>
-                          <details>
-                            <summary className='cursor-pointer font-bold text-portal-blue'>View breakdown</summary>
-                            <div className='mt-3 min-w-[360px] space-y-2'>
-                              {student.attempt_results?.map((attempt, index) => (
-                                <div key={attempt.assessment_id + '-' + attempt.attempt_number + '-' + index} className='rounded-md bg-slate-50 p-3'>
-                                  <strong>{attempt.assessment_title}</strong><span className='ml-2 text-xs uppercase text-slate-500'>{attempt.source.replace('_', ' ')}</span>
-                                  <p className='mt-1 text-xs text-slate-600'>Attempt {attempt.attempt_number} · {attempt.earned_marks}/{attempt.max_marks} · {attempt.score}% · {attempt.status.replaceAll('_', ' ')}</p>
-                                </div>
-                              ))}
-                              {student.course_scores?.map((course) => (
-                                <div key={course.course_id} className='rounded-md bg-slate-50 p-3'><strong>{course.course_title}</strong><p className='mt-1 text-xs text-slate-600'>Rank {course.rank ? '#' + course.rank : '—'} · {course.score}% · {course.attempts} attempts</p></div>
-                              ))}
-                              {!student.attempt_results?.length && !student.course_scores?.length ? <p className='text-xs text-slate-500'>No results recorded yet.</p> : null}
-                            </div>
-                          </details>
-                        </td>
+                        <td className='p-4 text-lg font-black text-portal-blue'>#{student.rank}</td>
+                        <td className='p-4'><strong className='block text-slate-950'>{student.student_name}</strong><span className='text-xs text-slate-500'>{student.registration_number} / {student.student_email}</span></td>
+                        <td className='p-4 font-black text-slate-950'>{student.score}%</td>
+                        <td className='p-4'><span className='font-semibold'>{student.completion_percent}%</span><div className='mt-2 h-1.5 w-24 overflow-hidden rounded-full bg-slate-200'><div className='h-full rounded-full bg-portal-blue' style={{ width: `${Math.min(100, student.completion_percent)}%` }} /></div></td>
+                        <td className='p-4'>{student.attempts}</td>
+                        <td className='p-4'><StudentBreakdown student={student} /></td>
                       </tr>
                     ))}
                   </tbody>
@@ -140,4 +105,41 @@ export function AdminLeaderboardDialog({
       </div>
     </div>
   );
+}
+
+function SummaryCard({ label, value, note, topper = false }: { label: string; value: string; note?: string; topper?: boolean }) {
+  return <div className={`rounded-xl border p-5 ${topper ? 'border-amber-200 bg-amber-50' : 'border-portal-line bg-slate-50'}`}><span className={`flex items-center gap-2 text-sm font-bold ${topper ? 'text-amber-800' : 'text-slate-500'}`}>{topper ? <Trophy size={18} /> : null}{label}</span><strong className={`mt-3 block text-slate-950 ${topper ? 'text-xl' : 'text-3xl'}`}>{value}</strong>{note ? <span className='mt-1 block text-sm text-slate-600'>{note}</span> : null}</div>;
+}
+
+function StudentBreakdown({ student }: { student: LeaderboardStudent }) {
+  const attempts = student.attempt_results ?? [];
+  const written = attempts.filter((item) => item.source === 'written_exam');
+  const courseAttempts = attempts.filter((item) => item.source === 'course_test');
+  const assessments = attempts.filter((item) => item.source === 'assessment');
+  const courseScores = student.course_scores ?? [];
+  return (
+    <details>
+      <summary className='cursor-pointer select-none font-bold text-portal-blue'>View breakdown</summary>
+      <div className='mt-4 grid min-w-[720px] gap-4 lg:grid-cols-3'>
+        <BreakdownSection title='Written Tests' icon={FileSpreadsheet} count={written.length}>{written.map((attempt, index) => <AttemptResult key={resultKey(attempt, index)} attempt={attempt} />)}</BreakdownSection>
+        <BreakdownSection title='Course-wise Assessments' icon={BookOpenCheck} count={courseScores.length + courseAttempts.length}>
+          {courseScores.map((course) => <div key={course.course_id} className='rounded-lg border border-slate-200 bg-white p-3'><strong className='block text-sm text-slate-900'>{course.course_title}</strong><p className='mt-1 text-xs leading-5 text-slate-600'>Rank {course.rank ? '#' + course.rank : 'Not ranked'} / Score {course.score}% / {course.attempts} attempt(s)</p></div>)}
+          {courseAttempts.map((attempt, index) => <AttemptResult key={resultKey(attempt, index)} attempt={attempt} />)}
+        </BreakdownSection>
+        <BreakdownSection title='Assessments' icon={ClipboardCheck} count={assessments.length}>{assessments.map((attempt, index) => <AttemptResult key={resultKey(attempt, index)} attempt={attempt} />)}</BreakdownSection>
+      </div>
+    </details>
+  );
+}
+
+function BreakdownSection({ title, icon: Icon, count, children }: { title: string; icon: typeof Trophy; count: number; children: ReactNode }) {
+  return <section className='rounded-xl border border-slate-200 bg-slate-50 p-3'><header className='mb-3 flex items-center justify-between gap-3'><span className='flex items-center gap-2 font-bold text-slate-900'><Icon size={17} className='text-portal-blue' />{title}</span><span className='rounded-full bg-white px-2.5 py-1 text-xs font-bold text-slate-600'>{count}</span></header><div className='max-h-64 space-y-2 overflow-y-auto pr-1'>{count ? children : <p className='rounded-lg border border-dashed border-slate-300 bg-white p-4 text-center text-xs text-slate-500'>No results recorded yet.</p>}</div></section>;
+}
+
+function AttemptResult({ attempt }: { attempt: LeaderboardAttempt }) {
+  return <div className='rounded-lg border border-slate-200 bg-white p-3'><strong className='block text-sm text-slate-900'>{attempt.assessment_title}</strong><p className='mt-1 text-xs leading-5 text-slate-600'>Attempt {attempt.attempt_number} / {attempt.earned_marks}/{attempt.max_marks} / {attempt.score}% / {attempt.status.replaceAll('_', ' ')}</p></div>;
+}
+
+function resultKey(attempt: LeaderboardAttempt, index: number) {
+  return attempt.source + '-' + attempt.assessment_id + '-' + attempt.attempt_number + '-' + index;
 }

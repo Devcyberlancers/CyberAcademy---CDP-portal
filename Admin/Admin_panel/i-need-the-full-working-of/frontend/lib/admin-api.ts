@@ -171,6 +171,8 @@ export function selectAdminBatch(name: string) {
 export type AdminAssessmentAttempt = {
   attemptId: number;
   studentId?: number | null;
+  studentName?: string;
+  registrationNumber?: string;
   studentEmail: string;
   assignmentId: string;
   assignmentTitle: string;
@@ -202,6 +204,8 @@ export type AdminAssessmentAttemptDetail = AdminAssessmentAttempt & {
     selectedAnswer?: string | null;
     correctAnswer?: string | null;
     isCorrect: boolean;
+    awardedMarks: number;
+    maxMarks: number;
     answered: boolean;
   }>;
 };

@@ -772,20 +772,43 @@ export class AssessmentsService {
       }),
     ]);
     const ids = [...new Set(rows.map((row) => row.assignment_id))];
-    const assignments = await this.prisma.assignment_security_settings.findMany(
-      { where: { assignment_id: { in: ids } } },
-    );
+    const studentEmails = [
+      ...new Set(rows.map((row) => row.student_email.toLowerCase())),
+    ];
+    const [assignments, profiles] = await Promise.all([
+      this.prisma.assignment_security_settings.findMany({
+        where: { assignment_id: { in: ids } },
+      }),
+      this.prisma.student_profiles.findMany({
+        where: { email: { in: studentEmails } },
+        select: {
+          email: true,
+          full_name: true,
+          registration_number: true,
+        },
+      }),
+    ]);
     const titles = new Map(
       assignments.map((row) => [row.assignment_id, row.assignment_title]),
+    );
+    const students = new Map(
+      profiles.map((profile) => [profile.email.toLowerCase(), profile]),
     );
     return {
       page: filters.page,
       pageSize: filters.size,
       total,
       totalPages: total ? Math.ceil(total / filters.size) : 0,
-      items: rows.map((row) =>
-        this.summary(row, titles.get(row.assignment_id)),
-      ),
+      items: rows.map((row) => {
+        const student = students.get(row.student_email.toLowerCase());
+        return {
+          ...this.summary(row, titles.get(row.assignment_id)),
+          studentName: student?.full_name || row.student_email,
+          registrationNumber:
+            student?.registration_number ||
+            (row.student_id ? `Student #${row.student_id}` : ''),
+        };
+      }),
     };
   }
 
@@ -802,6 +825,8 @@ export class AssessmentsService {
       const correctOption = question.options?.find(
         (o: any) => o.id === question.correct_option_id,
       );
+      const maxMarks = Math.max(1, Number(question.marks) || 1);
+      const isCorrect = selected === question.correct_option_id;
       return {
         questionNumber: index + 1,
         questionId: question.id,
@@ -810,7 +835,9 @@ export class AssessmentsService {
         selectedAnswer: selectedOption?.text ?? null,
         correctOptionId: question.correct_option_id,
         correctAnswer: correctOption?.text ?? null,
-        isCorrect: selected === question.correct_option_id,
+        isCorrect,
+        awardedMarks: isCorrect ? maxMarks : 0,
+        maxMarks,
         answered: selected !== undefined,
       };
     });

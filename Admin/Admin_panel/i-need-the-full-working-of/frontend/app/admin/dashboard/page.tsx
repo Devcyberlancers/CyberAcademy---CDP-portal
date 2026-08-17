@@ -85,15 +85,15 @@ export default function AdminDashboardPage() {
   return (
     <AdminShell title="Dashboard" subtitle="Live admin control center for client testing">
       <SectionCard title={"Overall Leaderboard · " + selectedBatch}>
-        <div className="grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)]">
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-5">
+        <div className="grid gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6">
             <span className="flex items-center gap-2 text-sm font-bold text-amber-800"><Trophy size={18} /> Batch topper</span>
             <strong className="mt-4 block text-xl text-slate-950">{leaderboard?.topper?.student_name || "No scored results yet"}</strong>
             <p className="mt-1 text-sm text-slate-600">{leaderboard?.topper ? leaderboard.topper.registration_number + " · " + leaderboard.topper.score + "%" : "Import written results or complete portal tests to begin ranking."}</p>
             <button type="button" onClick={() => setShowLeaderboard(true)} className="mt-5 h-10 w-full rounded-md bg-portal-blue px-4 text-sm font-bold text-white">View full leaderboard</button>
           </div>
-          <div className="min-w-0 overflow-x-auto rounded-xl border border-portal-line">
-            <table className="w-full min-w-[680px] text-left text-sm">
+          <div className="min-w-0 overflow-x-auto rounded-2xl border border-portal-line bg-white">
+            <table className="w-full min-w-[620px] text-left text-sm">
               <thead className="bg-slate-100 text-slate-600"><tr><th className="p-3">Rank</th><th className="p-3">Student</th><th className="p-3">Overall</th><th className="p-3">Written</th><th className="p-3">Completion</th><th className="p-3">Attempts</th></tr></thead>
               <tbody>
                 {leaderboard?.students.slice(0, 5).map((student) => (
@@ -112,10 +112,10 @@ export default function AdminDashboardPage() {
           </div>
         </div>
       </SectionCard>
-      <div className="mt-5">
-      <div className="grid min-w-0 items-start gap-4 lg:grid-cols-3 lg:gap-5">
-        <div className="grid self-start gap-5 lg:col-span-2">
-          <div className="grid items-start gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="mt-7">
+      <div className="grid min-w-0 items-start gap-6 lg:grid-cols-3">
+        <div className="grid self-start gap-6 lg:col-span-2">
+          <div className="grid items-start gap-5 sm:grid-cols-2 xl:grid-cols-3">
             {dashboardStats.map((stat) => (
               <StatCard key={stat.label} {...stat} />
             ))}
@@ -131,7 +131,7 @@ export default function AdminDashboardPage() {
             </div>
           </SectionCard>
         </div>
-        <div className="grid gap-5">
+        <div className="grid gap-6">
           <SectionCard title="Add Students">
             <div className="grid gap-3">
               <p className="text-sm text-slate-500">
