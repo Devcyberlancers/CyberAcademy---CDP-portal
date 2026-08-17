@@ -48,6 +48,9 @@ export type ProctoringState = {
   phoneDetected: boolean | null;
   phoneWarningCount: number;
   phoneWarningDeadline: number | null;
+  multiplePersonsDetected: boolean;
+  multiplePersonWarningCount: number;
+  multiplePersonWarningDeadline: number | null;
   audioLevel: number;
   detectorHealth: {
     mediapipe: DetectorHealth;

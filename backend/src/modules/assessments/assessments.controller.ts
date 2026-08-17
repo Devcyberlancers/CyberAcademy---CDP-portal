@@ -1,7 +1,8 @@
 import {
-  Body, Controller, Get, Headers, Ip, Param, ParseIntPipe, Post, Put, Query, Res,
-  UseGuards,
+  BadRequestException, Body, Controller, Get, Headers, Ip, Param, ParseIntPipe, Post, Put, Query, Res,
+  UploadedFile, UseGuards, UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -12,6 +13,7 @@ import {
   NativeAssessmentDto,
 } from './dto/assessment.dto';
 import { AssessmentsService } from './assessments.service';
+import { QuestionImportService } from './question-import.service';
 
 const ADMIN_ROLES = ['admin', 'super_admin', 'course_admin', 'placement_admin', 'student_admin'];
 
@@ -19,7 +21,13 @@ const ADMIN_ROLES = ['admin', 'super_admin', 'course_admin', 'placement_admin', 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(...ADMIN_ROLES)
 export class AdminAssessmentsController {
-  constructor(private readonly service: AssessmentsService) {}
+  constructor(private readonly service: AssessmentsService, private readonly questionImport: QuestionImportService) {}
+  @Post('import-questions')
+  @UseInterceptors(FileInterceptor('file', { limits: { files: 1, fileSize: 10 * 1024 * 1024 } }))
+  importQuestions(@UploadedFile() file?: Express.Multer.File) {
+    if (!file) throw new BadRequestException('Select a question document to upload.');
+    return this.questionImport.import(file);
+  }
   @Get() all() { return this.service.nativeAssessments(); }
   @Post() upsert(@Body() dto: NativeAssessmentDto) { return this.service.upsertNative(dto); }
   @Get('standalone') standalone(@Query('batch') batch?: string) { return this.service.getCollection('standalone', undefined, batch); }

@@ -12,6 +12,7 @@ const initialState = (): ProctoringState => ({
   status: "PROCTORING_INITIALIZING", camera: false, microphone: false, screenShare: false,
   fullscreen: false, faceDetected: null, personCount: null, phoneDetected: null, audioLevel: 0,
   phoneWarningCount: 0, phoneWarningDeadline: null,
+  multiplePersonsDetected: false, multiplePersonWarningCount: 0, multiplePersonWarningDeadline: null,
   detectorHealth: { mediapipe: "initializing", yolo: "initializing", browser: "initializing", audio: "initializing" },
 });
 
@@ -32,6 +33,8 @@ export class ProctoringEngine {
   private yoloBusy = false;
   private phonePresent = false;
   private phoneLastSeen = 0;
+  private multiplePersonsPresent = false;
+  private multiplePersonsLastSeen = 0;
 
   constructor(private config: ProctoringConfig) {
     this.video.muted = true;
@@ -151,7 +154,7 @@ export class ProctoringEngine {
       const result = this.face.detect(this.video, performance.now());
       this.update({ faceDetected: result.count === 1 });
       if (result.count === 0) this.emit("FACE_NOT_DETECTED", "warning", 1 - result.confidence);
-      else if (result.count > 1) this.emit("MULTIPLE_FACES", "critical", result.confidence, { count: result.count });
+      else if (result.count > 1) this.emit("MULTIPLE_FACES", "info", result.confidence, { count: result.count });
       else this.emit("FACE_DETECTED", "info", result.confidence);
     } catch { this.update({ detectorHealth: { ...this.state.detectorHealth, mediapipe: "error" } }); }
   }
@@ -165,8 +168,8 @@ export class ProctoringEngine {
       this.update({ personCount: result.personCount });
       if (this.config.personDetection) {
         if (result.personCount === 0) this.emit("NO_PERSON_DETECTED", "warning", result.confidence);
-        else if (result.personCount > 1) this.emit("MULTIPLE_PERSONS", "critical", result.confidence, { count: result.personCount });
-        else this.emit("PERSON_DETECTED", "info", result.confidence);
+        else if (result.personCount === 1) this.emit("PERSON_DETECTED", "info", result.confidence);
+        this.trackMultiplePersons(result.personCount, result.confidence);
       }
       if (this.config.phoneDetection) this.trackPhone(result.phoneDetected, result.confidence);
     } catch { this.update({ detectorHealth: { ...this.state.detectorHealth, yolo: "error" } }); }
@@ -212,9 +215,49 @@ export class ProctoringEngine {
     });
   }
 
+  private trackMultiplePersons(personCount: number, confidence: number) {
+    const now = Date.now();
+    if (personCount > 1) {
+      this.multiplePersonsLastSeen = now;
+      if (!this.multiplePersonsPresent) {
+        this.multiplePersonsPresent = true;
+        this.issueMultiplePersonWarning(personCount, confidence);
+      } else if (this.state.multiplePersonWarningDeadline && now >= this.state.multiplePersonWarningDeadline) {
+        this.issueMultiplePersonWarning(personCount, confidence);
+      }
+      return;
+    }
+    if (this.multiplePersonsPresent && now - this.multiplePersonsLastSeen < 3000) return;
+    this.multiplePersonsPresent = false;
+    this.update({
+      multiplePersonsDetected: false,
+      multiplePersonWarningDeadline: null,
+      status: this.active ? "PROCTORING_ACTIVE" : this.state.status,
+    });
+  }
+
+  private issueMultiplePersonWarning(personCount: number, confidence: number) {
+    const warningNumber = this.state.multiplePersonWarningCount + 1;
+    const autoSubmit = warningNumber >= 4;
+    this.update({
+      multiplePersonsDetected: true,
+      multiplePersonWarningCount: warningNumber,
+      multiplePersonWarningDeadline: autoSubmit ? null : Date.now() + 10_000,
+      status: "PROCTORING_WARNING",
+    });
+    this.emit("MULTIPLE_PERSONS", autoSubmit ? "critical" : "warning", confidence, {
+      count: personCount,
+      warningNumber,
+      warningsAllowed: 3,
+      graceSeconds: autoSubmit ? 0 : 10,
+      autoSubmit,
+      force: true,
+    });
+  }
+
   private action(event: ProctoringEvent): ProctoringAction {
     if (event.severity === "info") return "LOG_ONLY";
-    if (event.type === "PHONE_DETECTED") return event.metadata?.autoSubmit === true ? "AUTO_SUBMIT" : "WARN";
+    if (event.type === "PHONE_DETECTED" || event.type === "MULTIPLE_PERSONS") return event.metadata?.autoSubmit === true ? "AUTO_SUBMIT" : "WARN";
     if (event.severity === "warning") return "WARN";
     if (event.type === "TAB_SWITCH" && !this.config.endOnTabSwitch) return "WARN";
     if (event.type === "WINDOW_BLUR" && !this.config.endOnBlur) return "WARN";
@@ -264,7 +307,9 @@ export class ProctoringEngine {
     this.video.pause();
     this.video.srcObject = null;
     stopProctoringStreams();
-    this.update({ status: "PROCTORING_STOPPED", camera: false, microphone: false, screenShare: false, phoneDetected: false, phoneWarningDeadline: null, audioLevel: 0 });
+    this.phonePresent = false;
+    this.multiplePersonsPresent = false;
+    this.update({ status: "PROCTORING_STOPPED", camera: false, microphone: false, screenShare: false, phoneDetected: false, phoneWarningDeadline: null, multiplePersonsDetected: false, multiplePersonWarningDeadline: null, audioLevel: 0 });
   }
 }
 

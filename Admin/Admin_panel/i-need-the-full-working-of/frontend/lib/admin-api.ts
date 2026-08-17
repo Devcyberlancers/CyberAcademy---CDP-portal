@@ -491,6 +491,37 @@ export async function uploadWrittenExamResults(file: File) {
   return result;
 }
 
+export type ImportedAssessmentQuestion = {
+  question: string;
+  options: string[];
+  answer: string;
+  explanation: string;
+  marks: number;
+  section: string;
+  type: 'MCQ' | 'Descriptive';
+  needsReview: boolean;
+};
+
+export type QuestionImportResult = {
+  fileName: string;
+  questionCount: number;
+  questions: ImportedAssessmentQuestion[];
+  warnings: string[];
+};
+
+export async function importAssessmentQuestions(file: File) {
+  const token = typeof window !== 'undefined' ? window.localStorage.getItem(tokenStorageKey) : null;
+  const form = new FormData();
+  form.append('file', file);
+  const response = await fetch(API_BASE_URL + '/api/admin/assessments/import-questions', {
+    method: 'POST',
+    headers: token ? { Authorization: 'Bearer ' + token } : {},
+    body: form,
+  });
+  if (!response.ok) throw new Error(await responseError(response));
+  return response.json() as Promise<QuestionImportResult>;
+}
+
 export function getStudentProfileFromDb(studentId: number) {
   return request<DbStudent>(`/api/admin/students/${studentId}/profile`);
 }

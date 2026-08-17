@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AdminShell } from "@/components/admin/AdminShell";
+import { QuestionDocumentImporter } from "@/components/admin/QuestionDocumentImporter";
 import { SectionCard } from "@/components/admin/SectionCard";
-import { getAdminSnapshot, getStandaloneAssessments, getStudentAssessmentAttempt, listStudentAssessmentAttempts, saveAdminSnapshot, saveStandaloneAssessments } from "@/lib/admin-api";
+import { getAdminSnapshot, getStandaloneAssessments, getStudentAssessmentAttempt, listStudentAssessmentAttempts, saveAdminSnapshot, saveStandaloneAssessments, type ImportedAssessmentQuestion } from "@/lib/admin-api";
 import { downloadCsv, downloadPdf, type ReportRow } from "@/lib/report-download";
 import { AlertTriangle, CheckCircle2, ClipboardList, Download, Edit3, FileCheck2, FileText, ImagePlus, Plus, RefreshCw, Save, Search, Send, ShieldCheck, Trash2, Users, X, XCircle } from "lucide-react";
 
@@ -376,6 +377,22 @@ export default function AssessmentsPage() {
     updateAssessment({ questions: [...selectedAssessment.questions, makeQuestion(selectedAssessment.questions.length + 1)] });
   }
 
+  function applyImportedQuestions(questions: ImportedAssessmentQuestion[]) {
+    const imported = questions.map((question, index): AssessmentQuestion => ({
+      id: `Q-${Date.now()}-import-${index}`,
+      title: `Imported question ${selectedAssessment.questions.length + index + 1}`,
+      text: question.question,
+      type: question.type,
+      section: question.section,
+      marks: question.marks,
+      options: question.type === "MCQ" ? question.options : [],
+      correctAnswer: question.answer,
+      explanation: question.explanation,
+    }));
+    updateAssessment({ questions: [...selectedAssessment.questions, ...imported] });
+    setSaveNotice(`${imported.length} imported question${imported.length === 1 ? "" : "s"} added as a draft. Review every field before Save & Publish.`);
+  }
+
   function updateQuestion(id: string, patch: Partial<AssessmentQuestion>) {
     updateAssessment({ questions: selectedAssessment.questions.map((question) => question.id === id ? { ...question, ...patch } : question) });
   }
@@ -453,7 +470,7 @@ export default function AssessmentsPage() {
               </div>
             </SectionCard>
 
-            {editorOpen && selectedAssessment.id ? <SectionCard title={selectedAssessment.published === false ? "Create / Edit Assessment" : "Edit Assessment"} action={<div className="flex flex-wrap gap-2"><button type="button" onClick={() => setEditorOpen(false)} className="flex h-10 items-center rounded-md border border-portal-line px-4 text-sm font-bold text-slate-700">Close</button><button onClick={addQuestion} disabled={!selectedAssessment.id} className="flex h-10 items-center gap-2 rounded-md border border-portal-line px-4 text-sm font-bold text-portal-blue disabled:cursor-not-allowed disabled:opacity-40"><Plus size={16} /> Add Question</button><button onClick={() => void pushAssessments()} disabled={saving || !selectedAssessment.id} className="flex h-10 items-center gap-2 rounded-md bg-emerald-600 px-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{saving ? <Save size={16} /> : <Send size={16} />}{saving ? "Publishing..." : "Save & Publish"}</button></div>}>
+            {editorOpen && selectedAssessment.id ? <SectionCard title={selectedAssessment.published === false ? "Create / Edit Assessment" : "Edit Assessment"} action={<div className="flex flex-wrap gap-2"><button type="button" onClick={() => setEditorOpen(false)} className="flex h-10 items-center rounded-md border border-portal-line px-4 text-sm font-bold text-slate-700">Close</button><QuestionDocumentImporter onApply={applyImportedQuestions} disabled={!selectedAssessment.id}/><button onClick={addQuestion} disabled={!selectedAssessment.id} className="flex h-10 items-center gap-2 rounded-md border border-portal-line px-4 text-sm font-bold text-portal-blue disabled:cursor-not-allowed disabled:opacity-40"><Plus size={16} /> Add Question</button><button onClick={() => void pushAssessments()} disabled={saving || !selectedAssessment.id} className="flex h-10 items-center gap-2 rounded-md bg-emerald-600 px-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{saving ? <Save size={16} /> : <Send size={16} />}{saving ? "Publishing..." : "Save & Publish"}</button></div>}>
               {saveNotice ? <p className={`mb-4 rounded-md px-4 py-3 text-sm font-semibold ${saveNotice.includes("pushed") ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-slate-700"}`}>{saveNotice}</p> : null}
               <div className="grid gap-4 lg:grid-cols-2">
                 <label><span className="mb-1 block text-sm font-bold text-slate-600">Assessment Title</span><input value={selectedAssessment.title} onChange={(event) => updateAssessment({ title: event.target.value })} className="h-11 w-full rounded-md border border-portal-line px-3" /></label>

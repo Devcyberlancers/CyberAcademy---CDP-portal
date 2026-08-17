@@ -17,6 +17,8 @@ import {
   Youtube
 } from "lucide-react";
 import { getAdminSnapshot, getCourseAssessments, saveAdminSnapshot, saveCourseAssessments } from "@/lib/admin-api";
+import { QuestionDocumentImporter } from "@/components/admin/QuestionDocumentImporter";
+import type { ImportedAssessmentQuestion } from "@/lib/admin-api";
 
 type QuizQuestion = {
   question: string;
@@ -296,6 +298,23 @@ export function CourseContentBuilder({ courseId }: CourseContentBuilderProps) {
     });
   }
 
+  function applyImportedQuestions(questions: ImportedAssessmentQuestion[]) {
+    setDraft({
+      ...draft,
+      generatedQuestions: [
+        ...draft.generatedQuestions,
+        ...questions.map((question) => ({
+          question: question.question,
+          options: question.type === "MCQ" ? question.options : [],
+          answer: question.answer,
+          explanation: question.explanation,
+          marks: question.marks,
+        })),
+      ],
+    });
+    setNotice(`${questions.length} imported question${questions.length === 1 ? "" : "s"} added as a draft. Review and update the module before publishing.`);
+  }
+
   function removeGeneratedQuestion(index: number) {
     setDraft({
       ...draft,
@@ -415,13 +434,16 @@ export function CourseContentBuilder({ courseId }: CourseContentBuilderProps) {
                     <p className="font-bold text-slate-950">{draft.quiz || "Module Quiz"}</p>
                     <p className="text-xs text-slate-500">Add as many manual questions as needed and assign marks to each one.</p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={addManualQuestion}
-                    className="h-9 rounded-md border border-portal-line px-3 text-xs font-bold text-portal-blue"
-                  >
-                    Add Manual Question
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <QuestionDocumentImporter onApply={applyImportedQuestions}/>
+                    <button
+                      type="button"
+                      onClick={addManualQuestion}
+                      className="h-10 rounded-md border border-portal-line px-4 text-sm font-bold text-portal-blue"
+                    >
+                      Add Manual Question
+                    </button>
+                  </div>
                 </div>
                 {draft.generatedQuestions.length ? (
                   <div className="divide-y divide-portal-line">

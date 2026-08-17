@@ -107,6 +107,7 @@ export function violationText(reason: string | null) {
     PAGE_HIDE: "Assessment page was hidden.",
     BROWSER_CLOSED: "Browser close or navigation was detected.",
     PHONE_DETECTED: "The test was automatically submitted after the fourth mobile phone warning.",
+    MULTIPLE_PERSONS: "The test was automatically submitted after the fourth extra-person warning.",
     TIMER_EXPIRED: "Timer expired."
   };
   return labels[reason || ""] || "A prohibited action was detected.";
